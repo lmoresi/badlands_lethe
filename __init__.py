@@ -29,4 +29,6 @@ See the help for each class / function for more detailed information
 from .tremesh   import meshtools
 from .tremesh   import TreMesh
 from .surfmesh  import HeightMesh
-#from .surfmesh  import SurfaceProcessMesh
+from .surfmesh  import SurfaceProcessMesh
+
+
