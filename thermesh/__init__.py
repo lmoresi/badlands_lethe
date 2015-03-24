@@ -27,6 +27,7 @@ See the help for each class / function for more detailed information
 """
 
 #from .  import meshtools
-from .heightMesh  import HeightMesh
-from .surfaceMesh import SurfaceProcessMesh
-# from .tremesh     import TreMesh
+# from .heightMesh  import HeightMesh
+# from .surfaceMesh import SurfaceProcessMesh
+from .thermesh     import ThermMesh
+from .conduction   import Conduction2D
