@@ -30,5 +30,5 @@ from .tremesh   import meshtools
 from .tremesh   import TreMesh
 from .surfmesh  import HeightMesh
 from .surfmesh  import SurfaceProcessMesh
-
+from .thermesh  import ThermMesh
 
