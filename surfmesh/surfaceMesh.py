@@ -14,20 +14,34 @@ class SurfaceProcessMesh(HeightMesh):
     
     name="Generic_SurfaceProcess_TriMesh"
 
-    
-    def __init__(self, points_x, points_y, height, rainfall_pattern, boundary_mask, verbose=False, storeDense=False):
+    def __init__(self, points_x=None, points_y=None, height=None, rainfall_pattern=None, sediment=None,
+                       uplift=None, boundary_mask=None, verbose=None, filename=None):
+
         """
         Initialise the Delaunay mesh (parent) and build height data structures
         """
         
         # initialise the mesh itself from the parent HeightMesh class
 
-        HeightMesh.__init__(self, points_x, points_y, height, boundary_mask, verbose=verbose, storeDense=storeDense)
+        HeightMesh.__init__(self, points_x, points_y, height, boundary_mask, verbose=verbose, filename=filename)
                
         # From the height field, build the river networks etc
 
-        self.rainfall_pattern = rainfall_pattern
-        self.sediment_thickness = np.zeros_like(rainfall_pattern)
+        if filename:
+            try: 
+                meshdata = np.load(filename)
+                self.rainfall_pattern = meshdata['rainfall_pattern']
+                self.sediment = meshdata['sediment']
+                self.uplift = meshdata['uplift']
+
+            except:
+                # Will have already bombed if not a valid mesh file
+                print "Invalid SurfaceProcessMesh file - ", filename
+
+        else:
+            self.rainfall_pattern = rainfall_pattern
+            self.sediment = sediment
+            self.uplift = uplift
 
         self.update_surface_processes()   
        
@@ -93,6 +107,17 @@ class SurfaceProcessMesh(HeightMesh):
         return
     
 
+    def dump_to_file(self, filename, **kwargs):
+        '''
+        Save SurfaceProcessMesh data to a file - stores x, y, bmask, height, rainfall, sediment
+        and triangulation information sufficient to 
+        retrieve, plot and rebuild the mesh. Saves any given data as well.
+
+        '''
+
+        np.savez(filename, x=self.x, y=self.y, height=self.height, 
+                           rainfall_pattern=self.rainfall_pattern, sediment=self.sediment,
+                           bmask=self.bmask, triang=self.tri.simplices, **kwargs )
 
 
     def identify_catchments_from_chains(self):
@@ -177,138 +202,63 @@ class SurfaceProcessMesh(HeightMesh):
 
         return
 
-    # def handle_low_points(self, base, its):
-    #     """
-    #     If the mesh has local minima and only erosion is active then it is necessary
-    #     to do something about these local low points. Here we assume that we can assign
-    #     the local average height to any local minimum and then iterate to get them to go 
-    #     away.  This is entirely ad hoc !
-    #     """
-
-    #     for iteration in range(0,its):
-    #         low_points = 0
-    #         for node in range(0,self.tri.npoints):
-    #             if self.neighbour_array_lo_hi[node][0] == node and self.bmask[node] == True:                   
-    #                 self.height[node] = self.height[self.neighbour_list[node]].mean()
-    #                 low_points += 1
-
-    #         if low_points == 0:
-    #             break 
-
-    def handle_low_points(self, base, its):
+    def handle_low_points(self, base, its, verbose=False):
         """
         If the mesh has local minima and only erosion is active then it is necessary
-        to do something about these local low points. Here we brute force our way
-        from the low point to some lower point nearby being careful not to create a
-        loop in the process. If the height is changing progressively, then this Should
-        find a nearby neighbour once removed from any point, but in practice it can be 
-        necessary to search further. If the region is almost flat then this process 
-        is pointless as our assumption of equilibrated downhill flow is false.
+        to do something about these local low points. Here what we do is to fill back 
+        upstream from the next-lowest height.
+
+        The approach in this subroutine is independent of the available sediment so it
+        does not properly conserve mass so you have to do something about this yourself !
         """
-        
+
+        self.low_points = self.identify_low_points()
+
+        if len(self.low_points) == 0:
+            return(self.height)
+
         rejected = 0
         fixed = 0
         notfixed = 0
         fix_path_nodes = 0
 
         delta_height = np.zeros_like(self.height)
-        
+
         for point in self.low_points:
-     
-            # Flat areas + dominated by deposition ... would be a better test !
-            
-            if self.height[point]-base < 0.005 * (self.height.max()-base):
+            if self.height[point] - base < 0.005 * (self.height.max() - base):
                 rejected += 1
                 continue
-               
-            loops = 0   
-            chain = [point]
-            while len(chain) < its and loops < 2*its:
-                loops += 1
-                for node in self.neighbour_array_lo_hi[chain[-1]]:
-                    if node not in chain:
-                        chain.append(node)
-                        break
-                
-                if self.height[chain[-1]] < self.height[point]:
-                    break
-                       
-            # Case where this worked:
-            if self.height[chain[-1]] - self.height[chain[0]] < 0.0:
-                # print point, " ---> ",mesh5.height[point], self.height[next_lowest], self.height[connect_to], self.height[point]- self.height[connect_to]
-                fixed = fixed + 1
-                fix_path_nodes = max(fix_path_nodes, len(chain))
-                
-                ddelta = self.height[chain[0]] - self.height[chain[-1]]
-                delta = ddelta / (len(chain) - 1)
-                
-                for idx, node in enumerate(chain):
-                    delta_height[node] =  - idx * delta
-            
-                            
-            else:
-                notfixed = notfixed + 1
-                # print point, " -/-> ",self.height[point], self.height[next_lowest], self.height[connect_to], self.height[point]- self.height[connect_to]
-                # print point, "      ",point, next_lowest, connect_to
-         
-
-        delta_height = self.local_area_smoothing(delta_height, 5 , centre_weight=0.9)
-
-        self.height += delta_height
-
-
-        report_string = "Low points - {:d} points not considered, {:d} fixed ({:d}), {:d} couldn't be fixed ".format(rejected, fixed, fix_path_nodes, notfixed)
-        
-        return report_string
-
-
-    def handle_low_points2(self, base, its):
-        """
-        If the mesh has local minima and only erosion is active then it is necessary
-        to do something about these local low points. Here we brute force our way
-        from the low point to some lower point nearby being careful not to create a
-        loop in the process. If the height is changing progressively, then this Should
-        find a nearby neighbour once removed from any point, but in practice it can be 
-        necessary to search further. If the region is almost flat then this process 
-        is pointless as our assumption of equilibrated downhill flow is false.
-        """
-        
-        rejected = 0
-        fixed = 0
-        notfixed = 0
-        fix_path_nodes = 0
-
-        delta_height = np.zeros_like(self.height)
-        
-        for point in self.low_points:
-            fixed += 1
-            if self.height[point]-base < 0.005 * (self.height.max()-base):
-                rejected += 1
-                continue
-
 
             # find the next lowest point in the neighbourhood and fill up everything nearby
-            
-            delta_height[point] = self.neighbour_array_lo_hi[point][1]
-    
-           
+            fixed += 1
+            delta_height[point] = self.height[self.neighbour_array_lo_hi[point]].mean()
+            if verbose:
+                print point, " -old h", self.height[point], "->", delta_height[point]
+
+
         # Now march the new height to all the uphill nodes of these nodes
-
-        for p in range(0, its):
-            delta_height += 1.0001 * self.uphill_smoothing(delta_height, its=1, centre_weight=0.0) # tiny gradient
-
-        self.height = np.maximum(self.height, delta_height)
-
-        print "dH min", delta_height.min()
-        print "dH max", delta_height.max()
-
-
-        report_string = "Low points - {:d} points not considered, {:d} fixed ({:d}), {:d} couldn't be fixed ".format(rejected, fixed, fix_path_nodes, notfixed)
+      
+        height = np.maximum(self.height, delta_height)
         
-        return report_string
+        for p in range(0, its):
+            delta_height = 1.001 * self.adjacency1.T.dot(delta_height)
+            height = np.maximum(height, delta_height)
+
+        if verbose:
+            print "Rejected ", rejected," points close to the base level"    
+
+        return height
 
 
+    def identify_flat_spots(self):
 
+        smooth_grad1 = self.local_area_smoothing(self.slope, its=1, centre_weight=0.5)
+        flat_spot_field = np.where(smooth_grad1 < smooth_grad1.max() / 10, 0.0, 1.0)
+        flat_spots = np.where(smooth_grad1 < smooth_grad1.max() / 10, True, False)
+        
+        return flat_spots
+    
+    
 
 
     def identify_low_points(self):
@@ -355,7 +305,8 @@ class SurfaceProcessMesh(HeightMesh):
 ## A simple implementation of the stream power erosion rate which assumes no variation in erodability (efficiency)
 
 
-    def stream_power_erosion_deposition_rate(self, efficiency=0.01, smooth_power=3, smooth_low_points=3, smooth_erosion_rate=3, smooth_deposition_rate = 3):
+    def stream_power_erosion_deposition_rate(self, efficiency=0.01,
+             smooth_power=3, smooth_low_points=3, smooth_erosion_rate=3, smooth_deposition_rate = 3):
         """
         Function of the SurfaceProcessMesh which computes stream-power erosion and deposition rates 
         from a given rainfall pattern (self.rainfall_pattern).
@@ -439,6 +390,8 @@ class SurfaceProcessMesh(HeightMesh):
         return erosion_rate, deposition_rate, stream_power
 
 
+## This is the one we are currently using !!
+
     def stream_power_erosion_deposition_rate2(self, efficiency=0.01, smooth_power=3, \
                                               smooth_low_points=2, smooth_erosion_rate=2, \
                                               smooth_deposition_rate=2, smooth_operator=None,
@@ -492,7 +445,6 @@ class SurfaceProcessMesh(HeightMesh):
         full_capacity_sediment_load = stream_power * self.area  
         cumulative_eroded_material = self.cumulative_flow(self.area * erosion_rate)
 
-
     # But this can exceed the carrying capacity    
         
         transport_limited_eroded_material = np.minimum(cumulative_eroded_material, full_capacity_sediment_load)
@@ -512,7 +464,7 @@ class SurfaceProcessMesh(HeightMesh):
     # to be clawed back downstream (ideally, but for now we can just make a global correction)
 
         deposition = np.clip(deposition, 0.0, 1.0e99)
-        deposition *= depo_sum / deposition.sum()
+        deposition *= depo_sum / (deposition.sum() + 1.0e-12)
 
 
     # The (interior) low points are a bit of a problem - we stomped on the stream power there
@@ -520,43 +472,56 @@ class SurfaceProcessMesh(HeightMesh):
     # make the numerical representation pretty unstable. Instead what we can do is to take that
     # deposition at the low points let it spill into the local area
             
-        # if len(self.low_points):
-        #     low_point_deposition = np.zeros_like(deposition)
-        #     low_point_deposition[self.low_points] = deposition[self.low_points]
 
-        #     #for i in range(0, smooth_low_points):
-        #         # low_point_deposition = self.local_area_smoothing(low_point_deposition, 1, centre_weight=0.75)  
-        #     low_point_deposition = self.uphill_smoothing(low_point_deposition, smooth_low_points, centre_weight=0.33) 
+    ## These will instead be handled by a specific routine "handle_low_points" which is 
+    ## done once the height has been updated
 
-        #     deposition[self.low_points] = 0.0
-        #     deposition += low_point_deposition
+        if len(self.low_points):
+            deposition[self.low_points] = 0.0
 
-        
-        # deposition *= depo_sum / deposition.sum()
+    # The flat regions in the domain are also problematic since the deposition there is 
 
+        flat_spots = self.identify_flat_spots()
 
+        if len(flat_spots):
+            smoothed_deposition = deposition.copy()
+            smoothed_deposition[np.invert(flat_spots)] = 0.0
+            smoothed_deposition = self.local_area_smoothing(smoothed_deposition, its=2, centre_weight=0.5)
+            deposition[flat_spots] = smoothed_deposition[flat_spots]    
+                
         deposition_rate = smooth_operator(deposition , smooth_deposition_rate, centre_weight=centre_weight) / self.area
 
         return erosion_rate, deposition_rate, stream_power
 
 
 
-    def landscape_diffusion_critical_slope(mesh, kappa, critical_slope, fluxBC):
+    def landscape_diffusion_critical_slope(self, kappa, critical_slope, fluxBC):
+        '''
+        Non-linear diffusion to keep slopes at a critical value. Assumes a background
+        diffusion rate (can be a vector of length mesh.tri.npoints) and a critical slope value. 
+
+        This term is suitable for the sloughing of sediment from hillslopes. 
+
+        To Do: The critical slope should be a function of the material (sediment, basement etc) 
+        but currently it is not. 
+
+        To Do: The fluxBC flag is global ... it should apply to the outward normal
+        at selected nodes but currently it is set to kill both fluxes at all boundary nodes.
+        '''
         
-        inverse_bmask = np.invert(mesh.bmask)
+        inverse_bmask = np.invert(self.bmask)
         
-        kappa_eff = kappa / (1.01 - (np.clip(mesh.slope,0.0,critical_slope) / critical_slope)**2)
+        kappa_eff = kappa / (1.01 - (np.clip(self.slope,0.0,critical_slope) / critical_slope)**2)
         diff_timestep   =  mesh.area.min() / kappa_eff.max()
 
-        ## Should wrap this as grad ( A * grad )
         
-        gradZx, gradZy = mesh.delaunay_grad(mesh.height)   
+        gradZx, gradZy = self.delaunay_grad(self.height)   
         flux_x = kappa_eff * gradZx
         flux_y = kappa_eff * gradZy    
         if fluxBC:
             flux_x[inverse_bmask] = 0.0
             flux_y[inverse_bmask] = 0.0  # outward normal flux, actually 
-        diffDz  = mesh.delaunay_div(flux_x, flux_y)
+        diffDz  = self.delaunay_div(flux_x, flux_y)
         
         if not fluxBC:
             diffDz[inverse_bmask] = 0.0
