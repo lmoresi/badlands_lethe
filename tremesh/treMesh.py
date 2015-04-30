@@ -22,7 +22,7 @@ class TreMesh:
     
     name = "Generic_TreMesh"
         
-    def __init__(self, points_x, points_y, boundary_mask, verbose=None):
+    def __init__(self, points_x=None, points_y=None, boundary_mask=None, verbose=None, filename=None):
         """ 
         Initialise the triangulation and extend its data structures to include neighbour lists etc
         """
@@ -30,10 +30,21 @@ class TreMesh:
         from scipy.spatial import Delaunay as __Delaunay
         import time
 
-        
-        self.x = np.array(points_x)
-        self.y = np.array(points_y)
-        self.bmask = np.array(boundary_mask)
+        if filename:
+            try:
+                meshdata = np.load(filename)
+                self.x = meshdata['x']
+                self.y = meshdata['y']
+                self.bmask = meshdata['bmask']
+
+            except:
+                print "Invalid mesh file - ", filename
+            
+        else:    
+            self.x = np.array(points_x)
+            self.y = np.array(points_y)
+            self.bmask = np.array(boundary_mask)
+
         self.verbose = verbose
         
         # multiple possible implementations of the vector operators
@@ -83,7 +94,17 @@ class TreMesh:
             print " - Local Smoothing Operator ", time.clock() - walltime,"s"
 
         return
- 
+
+
+    def dump_to_file(self, filename, **kwargs):
+        '''
+        Save TreMesh data to a file - stores x, y and triangulation information sufficient to 
+        retrieve, plot and rebuild the mesh. Saves any given data 
+
+        '''
+
+        np.savez(filename, x=self.x, y=self.y, bmask=self.bmask, triang=self.tri.simplices, **kwargs )
+
     
     def neighbours(self, centre_point):
         """
@@ -132,17 +153,27 @@ class TreMesh:
         # walltime = time.clock()
         
         for node, node_array in enumerate(closed_neighbourhood_array):
+  
             # Boundary nodes, the encircling nodes includes the node itself
             if not self.bmask[node]:
                 node_array = np.hstack( (node_array, node) )
 
             # Now order the list (use centroid since the node is included in boundary loops)
-            locations =  np.array(self.tri.points[node_array].T)
-            centroid =   np.array( (locations[0].mean() , locations[1].mean()) )
-            rlocations = (locations.T - centroid).T
-            theta    = np.arctan2(rlocations[0], rlocations[1])    
-            ordering = np.argsort(theta)
 
+                xx = self.x[node_array]
+                yy = self.y[node_array]
+                cx = xx.mean() #!!
+                cy = yy.mean() #!!
+                rx = xx - cx
+                ry = yy - cy   
+                tt = np.arctan2(rx, ry)
+                
+            else:
+                xx = self.x[node_array] - self.x[node]
+                yy = self.y[node_array] - self.y[node]
+                tt = np.arctan2(xx, yy)            
+
+            ordering = np.argsort(tt)
             neighbourhood_array[node] = node_array[ordering]
 
             # Now close the polygon
@@ -553,8 +584,6 @@ class TreMesh:
         
         
         return
-    
-    
     
     def _matrix_store_delaunay_grad_matrix(self):
         """
