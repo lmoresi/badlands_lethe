@@ -28,6 +28,7 @@ See the help for each class / function for more detailed information
 
 from .tremesh   import meshtools
 from .tremesh   import TreMesh
+from .tremesh   import Shape2Mesh
 from .surfmesh  import HeightMesh
 from .surfmesh  import SurfaceProcessMesh
 from .thermesh  import ThermMesh

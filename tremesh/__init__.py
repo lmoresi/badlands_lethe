@@ -16,3 +16,4 @@ See the help for each class / function for more detailed information
 """
 
 from .treMesh     import TreMesh
+from .meshshape   import Shape2Mesh
