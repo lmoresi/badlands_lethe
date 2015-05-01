@@ -1,5 +1,5 @@
 import numpy as np
-import shapely.geometry, triangle
+import triangle
 from time import clock
 from polysimplify import VWSimplifier
 
@@ -86,32 +86,27 @@ def point_in_poly(x,y,poly):
 				if x <= max(p1x,p2x):
 					if p1y != p2y:
 						xints = (y-p1y)*(p2x-p1x)/(p2y-p1y)+p1x
-				if p1x == p2x or x <= xints:
-					inside = not inside
+					if p1x == p2x or x <= xints:
+						inside = not inside
 		p1x,p1y = p2x,p2y
 
-	if inside:
-		return True
-	else:
-		return False
+	return inside
 
 
 class Shape2Mesh:
 	"""
 	Create an unstructured triangular mesh from complex shapes.
-	- Uses the shapely and triangle python modules.
+	- Uses the triangle module.
 
 	Add any number of shapes - this class tries to preserve their topology
 	while generating a quality mesh.
-	The shapes, and therefore mesh, will be simplified by a given ratio.
 	"""
-	def __init__(self, samples, verbose=True):
+	def __init__(self, verbose=True):
 		"""
 		Initialise a blank space and specify a maximum number of samples to use.
 		Shapes are added to these data structures later on.
 		"""
 		self.shapelist = []
-		self.samples = samples
 		self.verbose = verbose
 		self.shape = Shape2Mesh.shape() # initialise shape subclass
 				
@@ -127,37 +122,19 @@ class Shape2Mesh:
 			self.shapelist = shapelist
 			return
 
-	def createPolygon(self, vertices):
-		return shapely.geometry.Polygon(vertices)
-	def createLine(self, vertices):
-		return shapely.geometry.LineString(vertices)
-	def createPoint(self, vertices):
-		return shapely.geometry.Point(vertices)
 
-	def newShape(self, name, vertices, shapetype='polygon'):
+	def newShape(self, name, vertices):
 		"""
 		Create a new shape from a list of vertices
 		Vertices need to be ordered to preserve concavities
-		shapetype can be either 'polygon', 'line', or 'point'
 		Shapes are stored as self.shape.name
 		"""
 		name = str(name) #ensure string
 		self.shapelist.append(name)
-
-		if shapetype in ['poly', 'polygon']:
-			self.shape.shapelist['poly'].append(name)
-			setattr(self.shape, name, self.createPolygon(vertices))
-		elif shapetype == 'line':
-			self.shape.shapelist['line'].append(name)
-			setattr(self.shape, name, self.createLine(vertices))
-		elif shapetype == 'point':
-			self.shape.shapelist['point'].append(name)
-			setattr(self.shape, name, self.createPoint(vertices))
-		else:
-			raise Exception("shapetype must be 'polygon', 'line', or 'point'")
+		setattr(self.shape, name, VWSimplifier(vertices))
 
 		if self.verbose:
-			print " - %s '%s' created with %i vertices" % (shapetype.upper(), name, len(vertices))
+			print " - '%s' created with %i vertices" % (name, len(vertices))
 
 		return
 
@@ -174,39 +151,26 @@ class Shape2Mesh:
 		"""
 		Returns 'True' or 'False' if point intersects a polygon
 		"""
-		pt = shapely.geometry.Point(xy)
-		intersect = getattr(self.shape, shapeName).intersects(pt)
-		return intersect
+		return point_in_poly(xy[0], xy[1], getattr(self.shape, shapeName).pts)
 
 
 	def resolution(self):
-		""" Calculate resolution from total area """
-		area = 0.0
+		""" Calculate number of vertices that define shapes """
+		nverts = 0
 		for s in self.shapelist:
-			area += getattr(self.shape, s).area
-		
-		resolution = area**0.5 / self.samples
+			nverts += len(getattr(self.shape, s).pts)
 
-		self.area = area
-		self.resolution = resolution
+		return nverts
 
-		if self.verbose:
-			print " - Total mesh area of %.2f and resolution %.2f" % (area, resolution)
-
-		return resolution
-
-	def simplify(self, tolerance, shapeName=''):
+	def simplify(self, shapeName, tolerance):
 		"""
-		Manually simplify shapes while preserving topology within a certain topology.
-		Default action is to simplify all shapes with a given tolerance,
-		but a single shape can also be specified.
+		Simplify shapes while preserving topology using the
+		Visvalingam-Whyatt polyline simplification algorithm.
+
+		0 < tolerance < 1
+		where 1 = no change, and 0 = what shape?
 		"""
-		if shapeName == '':
-			for s in self.shapelist:
-				setattr(self.shape, s, getattr(self.shape, s).simplify(tolerance))
-		else:
-			shapeName = str(shapeName) #ensure string
-			setattr(self.shape, shapeName, getattr(self.shape, shapeName).simplify(tolerance))
+		return getattr(self.shape, shapeName).from_ratio(tolerance)
 
 
 	def boundary_mask(self, tri):
@@ -228,9 +192,11 @@ class Shape2Mesh:
 
 		return bmask
 
-	def meshit(self, importPoly='', is_concave=False):
+	def meshit(self, samples, importPoly='', is_concave=False):
 		"""
 		Create the Delaunay triangulation from previously defined shapes
+			samples: approximate number of vertices in triangulation
+
 		If you want to preserve concave structures, set is_concave=True
 		Separate .poly file can be easily imported and triangulated.
 		"""
@@ -242,51 +208,60 @@ class Shape2Mesh:
 		if importPoly != '':
 			D = read_poly(importPoly)
 
-		else:
-			D = dict()
-
-			# self.simplify(1000, s) # Adjust resolution
-
-			# Create vertices from shapes
-			vertices = []
-			for s in self.shapelist:
-				# Extract vertices
-				try:
-					getattr(self.shape, s).exterior.coords
-				except AttributeError:
-					# Must be a line or point
-					sxsy = list( getattr(self.shape, s).coords )
-				else:
-					sxsy = list( getattr(self.shape, s).exterior.coords )
-				vertices.extend(sxsy)
-			vertices = self.dedup(vertices)
-
-			D['vertices'] = np.array(vertices)
-
-			# Create segments from shapes
-			# Only necessary if concave
+			# triangulate
 			if is_concave:
-				hull = self.createPolygon(ver)
-				hxhy = list(hull.exterior.coords)
-				hxhy = self.dedup(hxhy)
-				segments = zip( np.arange(0,len(hxhy),dtype=int), np.append(np.arange(1,len(hxhy),dtype=int), 0) )
+				tri = triangle.triangulate(D, 'pq20')
+			else:
+				tri = triangle.triangulate(D, 'q20')
 
-				D['segments'] = np.array(segments)
+		else:
+			
+
+			## TRIANGULATION ROUTINE
+			tol = float(samples) / self.resolution()
+			samples_vertices = 0.0
+			while samples_vertices < 1:
+				D = dict()
+				# Create vertices from shapes
+				vertices = []
+				for s in self.shapelist:
+					# Simplify and extract vertices
+					if tol > 1:
+						xy = map( tuple, getattr(self.shape, s).pts )
+					else:	
+						xy = map( tuple, self.simplify(s, tol) )
+					vertices.extend(xy)
+				vertices = self.dedup(vertices)
+
+				D['vertices'] = np.array(vertices)
+
+				# Create segments from shapes
+				# Only necessary if concave
+				if is_concave:
+					hull = self.createPolygon(ver)
+					hxhy = list(hull.exterior.coords)
+					hxhy = self.dedup(hxhy)
+					segments = zip( np.arange(0,len(hxhy),dtype=int), np.append(np.arange(1,len(hxhy),dtype=int), 0) )
+
+					D['segments'] = np.array(segments)
+
+
+				# triangulate
+				if is_concave:
+					tri = triangle.triangulate(D, 'pq20')
+				else:
+					tri = triangle.triangulate(D, 'q20')
+
+				samples_vertices = float(samples) / len(tri['vertices'])
+				tol = samples_vertices
+
 
 		# Store original dictionary for further refinement
 		self.meshDict = D
 
-		# triangulate
-		args = 'q20'
-		if is_concave:
-			args += 'p'
-			tri = triangle.triangulate(D, args)
-		else:
-			tri = triangle.triangulate(D, args)
-
 
 		if self.verbose:
-			print " - Mesh triangulation complete.\n   %i vertices in %f secs with arguments '%s'" % (len(tri['vertices']), clock()-t, args)
+			print " - Mesh triangulation complete. %i vertices in %f secs" % (len(tri['vertices']), clock()-t)
 
 		self.x = tri['vertices'][:,0]
 		self.y = tri['vertices'][:,1]
@@ -319,7 +294,7 @@ class Shape2Mesh:
 		self.bmask = self.boundary_mask(tri)
 
 		if self.verbose:
-			print " - Mesh refinement complete.\n   %i vertices in %f secs with arguments '%s'" % (len(tri['vertices']), clock()-t, args)
+			print " - Mesh refinement complete. %i vertices in %f secs with arguments '%s'" % (len(tri['vertices']), clock()-t, args)
 
 		return
 
