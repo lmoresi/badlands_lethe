@@ -1,17 +1,17 @@
 ## Surface mesh (subclass of mesh) - this defines a TriMesh plus height plus all of the paraphernalia to evolve the height
-    
+
 
 import numpy as np
 import math
-from .. import TreMesh
+from ..virtualmesh import VirtualTopoMesh
 
 
-class HeightMesh(TreMesh):
+class TopoMesh(VirtualTopoMesh):
     """
     Builds a TreMesh (2D) object and adds a height field and data structures / operators
-    to propagate information across the surface (e.g. flow downhill) 
+    to propagate information across the surface (e.g. flow downhill)
     """
-    
+
     name="Generic_Height_TreMesh"
 
     def __init__(self, points_x=None, points_y=None, height=None, boundary_mask=None, verbose=None, filename=None):
@@ -19,16 +19,16 @@ class HeightMesh(TreMesh):
         """
         Initialise the Delaunay mesh (parent) and build height data structures
         """
-        
+
         # initialise the mesh itself from the parent TreMesh class
-        TreMesh.__init__(self, points_x=points_x, points_y=points_y, 
+        TreMesh.__init__(self, points_x=points_x, points_y=points_y,
                                boundary_mask=boundary_mask,
                                verbose=verbose, filename=filename)
-        
+
         # Add the height field (and compute slope, create a height-sorted index list)
 
         if filename:
-            try: 
+            try:
                 meshdata = np.load(filename)
                 self.height = meshdata['height']
 
@@ -38,12 +38,12 @@ class HeightMesh(TreMesh):
 
         else:
             self.height = height
- 
+
         self.update_height(self.height)
-            
+
         return
 
- 
+
     def update_height(self, height):
         """
         If the height field changes a number of things will need to be re-built. This function
@@ -51,17 +51,17 @@ class HeightMesh(TreMesh):
         and sorts the nodes by height etc etc.
 
         It does not build / re-build the node chains as this is expensive, but it does destroy
-        any existing node chains which would no longer be valid. See self.build_node_chains() 
+        any existing node chains which would no longer be valid. See self.build_node_chains()
         """
-       
+
         import time
 
         self.height = height
-        
+
         gradZx, gradZy = self.delaunay_grad(height)
-        self.slope = np.sqrt(gradZx**2+gradZy**2)   
-        
-        # Initialise the downhill/uphill data structures    
+        self.slope = np.sqrt(gradZx**2+gradZy**2)
+
+        # Initialise the downhill/uphill data structures
 
         wall_time = time.clock()
         self._sort_nodes_by_height()
@@ -72,7 +72,7 @@ class HeightMesh(TreMesh):
 
         wall_time = time.clock()
         self._build_downhill_matrices()
- 
+
         if self.verbose:
             print " - Built downhill matrices ", time.clock() - wall_time, "s"
             wall_time = time.clock()
@@ -80,18 +80,18 @@ class HeightMesh(TreMesh):
         # Ensure no outdated node chain information is kept
 
         self.node_chain_lookup = None
-        self.node_chain_list = None        
+        self.node_chain_list = None
 
     def dump_to_file(self, filename, **kwargs):
         '''
-        Save HeightMesh data to a file - stores x, y and triangulation information sufficient to 
-        retrieve, plot and rebuild the mesh. Saves any given data 
+        Save HeightMesh data to a file - stores x, y and triangulation information sufficient to
+        retrieve, plot and rebuild the mesh. Saves any given data
 
         '''
 
         np.savez(filename, x=self.x, y=self.y, height=self.height, bmask=self.bmask, triang=self.tri.simplices, **kwargs )
 
-    
+
     def _sort_nodes_by_height(self):
         """
         Sort nodes from highest to lowest according to self.height
@@ -106,7 +106,7 @@ class HeightMesh(TreMesh):
         for node in range(0,self.tri.npoints):
             heights = self.height[self.neighbour_array[node]]
             neighbour_array_lo_hi[node] = self.neighbour_array[node][np.argsort(heights)]
-      
+
         self.neighbour_array_lo_hi = neighbour_array_lo_hi
 
 
@@ -115,48 +115,48 @@ class HeightMesh(TreMesh):
         DX0 = vector.copy()
         DX1 = vector.copy()
 
-        while DX1.any(): 
+        while DX1.any():
             DX1 = self.downhillMat.dot(DX1)
-            DX0 += DX1    
+            DX0 += DX1
 
 
-        return DX0   
+        return DX0
 
     def cumulative_flow1(self, vector):
 
         DX0 = vector.copy()
         DX1 = vector.copy()
 
-        while DX1.any(): 
+        while DX1.any():
             DX1 = self.adjacency1.dot(DX1)
-            DX0 += DX1    
+            DX0 += DX1
 
 
-        return DX0   
+        return DX0
 
     # def cumulative_flow16(self, vector):
 
     #     DX0 = vector.copy()
     #     DX1 = vector.copy()
 
-    #     while DX1.any(): 
+    #     while DX1.any():
     #         DX = self.downhillMat16a.dot(DX1)
     #         DX1 = self.downhillMat16.dot(DX1)
     #         DX0 += DX
 
-    #     return DX0 
+    #     return DX0
 
     # def cumulative_flow8(self, vector):
 
     #     DX0 = vector.copy()
     #     DX1 = vector.copy()
 
-    #     while DX1.any(): 
+    #     while DX1.any():
     #         DX = self.downhillMat8a.dot(DX1)
     #         DX1 = self.downhillMat8.dot(DX1)
     #         DX0 += DX
 
-    #     return DX0   
+    #     return DX0
 
 
     def sweep_downhill_with_flow(self, vector):
@@ -166,18 +166,18 @@ class HeightMesh(TreMesh):
 
         while DX1.any():
             DX1 = self.downhillMat.dot(DX1)
-            DX0 = self.accumulatorMat.dot(DX0)    
+            DX0 = self.accumulatorMat.dot(DX0)
 
         return DX0
 
 
 ## I think the best strategy here would be to build the adjacency matrix for the steepest descent
-## graph and one for the second-steepest descent and store these. 
-## 
-## The actual downhill matrix can then be calculated based on the particular choice of pathway model
-## (and hence downhill.T would just work as it is supposed to). 
+## graph and one for the second-steepest descent and store these.
 ##
-## It would probably be possible to make the accumulator matrix from this one. 
+## The actual downhill matrix can then be calculated based on the particular choice of pathway model
+## (and hence downhill.T would just work as it is supposed to).
+##
+## It would probably be possible to make the accumulator matrix from this one.
 ## Not sure exactly how this would work.
 
 
@@ -185,29 +185,29 @@ class HeightMesh(TreMesh):
         """
         Constructs a sparse matrix to move information downhill by one node (self.downhillMat).
         A second matrix (self.accumulatorMat) moves the information as far as a base level / boundary node
-        where it then sticks. 
+        where it then sticks.
 
         Repeated application of the accumulatorMatrix moves all information to the catchment outflow and
-        can be used to identify the catchments and find the catchment area. 
+        can be used to identify the catchments and find the catchment area.
 
         The downhill matrix pushes information out of the domain and can be used as an increment
         to construct the cumulative area (etc) along the flow paths.
 
         Note that downhillMat.T will propagate information from the catchment outflow to every point
-        in the catchment and can be used incrementally to tag nodes to find the catchments. 
+        in the catchment and can be used incrementally to tag nodes to find the catchments.
 
         """
 
         from scipy import sparse as sparse
-         
+
 
         down_neighbour = np.empty(self.tri.npoints, dtype=np.int)
 
         for node in range (0,self.tri.npoints):
             down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
 
-        # Build a matrix of downhill-ness - one entry per node !    
-            
+        # Build a matrix of downhill-ness - one entry per node !
+
         size = self.tri.npoints
         row_array  = np.empty(size, dtype = int)
         col_array  = np.empty(size, dtype = int)
@@ -215,17 +215,17 @@ class HeightMesh(TreMesh):
         accu_array = np.ones(size)
 
 
-        for row in range(0, self.tri.npoints):    
+        for row in range(0, self.tri.npoints):
             row_array[row] = row
             col_array[row] = down_neighbour[row]
-            
-        accuMCOO = sparse.coo_matrix( (accu_array, (row_array, col_array)), shape=(size,size) ).T  
 
-        self.accumulatorMat  = accuMCOO.tocsr() 
+        accuMCOO = sparse.coo_matrix( (accu_array, (row_array, col_array)), shape=(size,size) ).T
+
+        self.accumulatorMat  = accuMCOO.tocsr()
 
         self._build_adjacency_matrix_1()
         self._build_adjacency_matrix_2()
-        
+
         self.downhillMat = weight * self.adjacency1 + (1.0-weight) * self.adjacency2
 
         # A1 = self.downhillMat
@@ -243,35 +243,35 @@ class HeightMesh(TreMesh):
         # self.downhillMat16a = A16a
         # self.downhillMat8a  = A8a
 
-        # We make it optional to build these as they are not sparse 
+        # We make it optional to build these as they are not sparse
         # This cleans up previously stored matrices
 
         self.downhillCumulativeMat = None
         self.sweepDownToOutflowMat = None
-       
+
         return
 
 
     def _build_adjacency_matrix_1(self):
         """
-        Constructs a sparse matrix to move information downhill by one node in the 
-        direction of the lowest node (self.adjacency1) - NOT in the steepest direction, though 
+        Constructs a sparse matrix to move information downhill by one node in the
+        direction of the lowest node (self.adjacency1) - NOT in the steepest direction, though
         approximately so assuming roughly equal triangle sizes
-        
+
         The downhill matrix pushes information out of the domain and can be used as an increment
         to construct the cumulative area (etc) along the flow paths.
 
         """
 
         from scipy import sparse as sparse
-         
+
         down_neighbour = np.empty(self.tri.npoints)
 
         for node in range (0,self.tri.npoints):
             down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
 
-        # Build a matrix of downhill-ness - one entry per node !    
-            
+        # Build a matrix of downhill-ness - one entry per node !
+
         size = self.tri.npoints
         row_array  = np.empty(size)
         col_array  = np.empty(size)
@@ -279,18 +279,18 @@ class HeightMesh(TreMesh):
 
         # Catch cases where node is local low point (i.e. it is its own low neighbour)
 
-        for row in range(0, self.tri.npoints):    
+        for row in range(0, self.tri.npoints):
             row_array[row] = row
             col_array[row] = down_neighbour[row]
             if row == down_neighbour[row]:
                down_array[row] = 0.0
-            
 
-        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T    
 
-        self.adjacency1 = downMCOO.tocsr() 
+        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T
 
-        # Catch pathological cases - sometimes if there is a flat spot on the boundary, then 
+        self.adjacency1 = downMCOO.tocsr()
+
+        # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
         # repetition of values in the COO list which are summed on conversion.
 
@@ -304,29 +304,29 @@ class HeightMesh(TreMesh):
             """
             downMat = sparse.lil_matrix((size, size))
 
-            for row in range(0, self.tri.npoints):    
+            for row in range(0, self.tri.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in range(0, self.tri.npoints):    
+            for row in range(0, self.tri.npoints):
                 if down_neighbour[row] == row:
                     downMat[row,row] = 0.0
-         
-            self.adjacency1 = downMat.T.tocsr() 
- 
+
+            self.adjacency1 = downMat.T.tocsr()
+
         return
 
     def _build_adjacency_matrix_2(self):
         """
-        Constructs a sparse matrix to move information downhill by one node in the 
-        direction of the second-lowest node (self.adjacency2) 
-        
+        Constructs a sparse matrix to move information downhill by one node in the
+        direction of the second-lowest node (self.adjacency2)
+
         The downhill matrix pushes information out of the domain and can be used as an increment
         to construct the cumulative area (etc) along the flow paths.
 
         """
 
         from scipy import sparse as sparse
-         
+
         down_neighbour = np.empty(self.tri.npoints)
         down_neighbour1 = np.empty(self.tri.npoints)
 
@@ -334,27 +334,27 @@ class HeightMesh(TreMesh):
             down_neighbour[node]  = self.neighbour_array_lo_hi[node][0]
             down_neighbour1[node] = self.neighbour_array_lo_hi[node][1]
 
-        # Build a matrix of downhill-ness - one entry per node !    
-            
+        # Build a matrix of downhill-ness - one entry per node !
+
         size = self.tri.npoints
         row_array  = np.empty(size)
         col_array  = np.empty(size)
         down_array = np.ones(size)
 
         # Catch cases where node is local low point (i.e. it is its own low neighbour)
-        for row in range(0, self.tri.npoints):    
+        for row in range(0, self.tri.npoints):
             row_array[row] = row
             col_array[row] = down_neighbour1[row]
             if row == down_neighbour[row]:
-                down_array[row] = 0.0  
+                down_array[row] = 0.0
             if row == down_neighbour1[row]:
                 col_array[row] = down_neighbour[row]
 
 
-        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T    
-        self.adjacency2 = downMCOO.tocsr() 
+        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T
+        self.adjacency2 = downMCOO.tocsr()
 
-        # Catch pathological cases - sometimes if there is a flat spot on the boundary, then 
+        # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
         # repetition of values in the COO list which are summed on conversion.
 
@@ -368,25 +368,25 @@ class HeightMesh(TreMesh):
             """
             downMat = sparse.lil_matrix((size, size))
 
-            for row in range(0, self.tri.npoints):    
+            for row in range(0, self.tri.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in range(0, self.tri.npoints):    
+            for row in range(0, self.tri.npoints):
                 if row == down_neighbour[row] or row == down_neighbour1[row]:
                     downMat[row,row] = 0.0
-         
-            self.adjacency2 = downMat.T.tocsr() 
+
+            self.adjacency2 = downMat.T.tocsr()
 
         return
 
 
     def build_cumulative_downhill_matrix(self):
         """
-        Build non-sparse, single hit matrices to propagate information downhill 
+        Build non-sparse, single hit matrices to propagate information downhill
         (self.sweepDownToOutflowMat and self.downhillCumulativeMat)
 
-        This may be expensive in terms of storage so this is only done if 
-        self.storeDense == True and the matrices are also out of date (which they 
+        This may be expensive in terms of storage so this is only done if
+        self.storeDense == True and the matrices are also out of date (which they
         will be if the height field is changed)
 
         downhillCumulativeMat = I + D + D**2 + D**3 + ... D**N where N is the length of the graph
@@ -399,7 +399,7 @@ class HeightMesh(TreMesh):
 
         walltime = time.clock()
 
-        downHillaccuMat = self.downhillMat.copy() 
+        downHillaccuMat = self.downhillMat.copy()
         accuM           = self.downhillMat.copy()   # work matrix
 
         DX =  np.ones(self.tri.npoints) # measure when all the info has been propagated out.
@@ -408,13 +408,13 @@ class HeightMesh(TreMesh):
 
         while np.count_nonzero(DX) != previous_nonzero:
             accuM           = accuM.dot(self.downhillMat)
-            downHillaccuMat = downHillaccuMat + accuM      
+            downHillaccuMat = downHillaccuMat + accuM
             previous_nonzero = np.count_nonzero(DX)
 
-            DX = self.downhillMat.dot(DX) 
+            DX = self.downhillMat.dot(DX)
 
             it += 1
-       
+
 
         print " - Dense downhill matrix storage time ", time.clock() - walltime
         print " - Maximum path length ",it
@@ -458,11 +458,11 @@ class HeightMesh(TreMesh):
 
     def _build_cumulative_downhill_matrices(self):
         """
-        Build non-sparse, single hit matrices to propagate information downhill 
+        Build non-sparse, single hit matrices to propagate information downhill
         (self.sweepDownToOutflowMat and self.downhillCumulativeMat)
 
-        This may be expensive in terms of storage so this is only done if 
-        self.storeDense == True and the matrices are also out of date (which they 
+        This may be expensive in terms of storage so this is only done if
+        self.storeDense == True and the matrices are also out of date (which they
         will be if the height field is changed)
 
         downhillCumulativeMat = I + D + D**2 + D**3 + ... D**N where N is the length of the graph
@@ -473,8 +473,8 @@ class HeightMesh(TreMesh):
         import time
         from scipy import sparse as sparse
 
-        downSweepMat    = self.accumulatorMat.copy() 
-        downHillaccuMat = self.downhillMat.copy() 
+        downSweepMat    = self.accumulatorMat.copy()
+        downHillaccuMat = self.downhillMat.copy()
         accuM           = self.downhillMat.copy()   # work matrix
 
         DX =  np.ones(self.tri.npoints) # measure when all the info has been propagated out.
@@ -484,11 +484,11 @@ class HeightMesh(TreMesh):
         while np.any(DX):
             downSweepMat    = downSweepMat.dot(self.accumulatorMat)  # N applications of the accumulator
             accuM           = accuM.dot(self.downhillMat)
-            downHillaccuMat = downHillaccuMat + accuM      
-          
-            DX = self.downhillMat.dot(DX) 
-       
- 
+            downHillaccuMat = downHillaccuMat + accuM
+
+            DX = self.downhillMat.dot(DX)
+
+
         print " - Dense downhill matrix storage time ", time.clock() - walltime
 
         downHillaccuMat = downHillaccuMat + sparse.identity(self.tri.npoints, format='csr')
@@ -533,7 +533,7 @@ class HeightMesh(TreMesh):
         """
         Walks downhill terminating when the downhill node is already claimed
         """
-   
+
         chain = -np.ones(self.tri.npoints, dtype=np.int) # in case the mesh is a spiral ziggurat
 
         idx = 0
@@ -544,32 +544,32 @@ class HeightMesh(TreMesh):
 
         while low_neighbour != -1:
             idx += 1
-            chain[idx] = low_neighbour      
+            chain[idx] = low_neighbour
             if self.node_chain_lookup[low_neighbour] != -1:
                 junction = self.node_chain_lookup[low_neighbour]
-                break 
+                break
 
             low_neighbour = self._node_lowest_neighbour(low_neighbour)
-            
+
         return junction, chain[0:idx+1]
 
-    
+
     def build_node_chains(self):
         """
         Builds all the chains for the mesh which flow from high to low and terminate
-        when they meet with an existing chain.  
+        when they meet with an existing chain.
 
         The following data structures become available once this function has been called:
 
             self.node_chain_lookup - tells you the chain in which a given node number lies
             self.node_chain_list   - is a list of the chains of nodes (each of which is an list)
 
-        The terminating node of a chain may be the junction with another (pre-exisiting) chain 
-        and will be a member of that chain. Backbone chains which run from the highest level 
+        The terminating node of a chain may be the junction with another (pre-exisiting) chain
+        and will be a member of that chain. Backbone chains which run from the highest level
         to the base level or the boundary are those whose terminal node is also a member of the same chain.
 
         Nodes which are at a base level given by self.base, are collected separately
-        into chain number 0. 
+        into chain number 0.
         """
 
         self.node_chain_lookup = -np.ones(self.tri.npoints, dtype=np.int)
@@ -579,26 +579,26 @@ class HeightMesh(TreMesh):
 
         self.node_chain_list.append([]) # placeholder for any isolated base-level nodes
 
-        for node1 in self.node_high_to_low:       
-            if (self.node_chain_lookup[node1] != -1):     
+        for node1 in self.node_high_to_low:
+            if (self.node_chain_lookup[node1] != -1):
                 continue
 
             junction, this_chain = self._node_walk_downhill(node1)
 
             if len(this_chain) > 1:
                 self.node_chain_list.append(this_chain)
-              
-                self.node_chain_lookup[this_chain[0:-1]] = node_chain_idx 
+
+                self.node_chain_lookup[this_chain[0:-1]] = node_chain_idx
                 if self.node_chain_lookup[this_chain[-1]] == -1:
                     self.node_chain_lookup[this_chain[-1]] = node_chain_idx
 
                 node_chain_idx += 1
 
-            else: 
+            else:
                 self.node_chain_list[0].append(this_chain[0])
                 self.node_chain_lookup[this_chain[0]] = 0
 
-        return  
+        return
 
 
 
@@ -620,7 +620,7 @@ class HeightMesh(TreMesh):
 
 
 
- 
+
     def uphill_smoothing(self, data, its, centre_weight=0.5):
 
         norm2 =  self.downhillMat.T.dot(np.ones_like(self.x))
@@ -641,7 +641,7 @@ class HeightMesh(TreMesh):
         A smoothing operator that is limited to the uphill / downhill nodes for each point. It's hard to build
         a conservative smoothing operator this way since "boundaries" occur at irregular internal points associated
         with watersheds etc. Upstream and downstream smoothing operations bracket the original data (over and under,
-        respectively) and we use this to find a smooth field with the same mean value as the original data. This is 
+        respectively) and we use this to find a smooth field with the same mean value as the original data. This is
         done for each application of the smoothing.
 
         """
@@ -652,7 +652,7 @@ class HeightMesh(TreMesh):
 
 
         return 0.5 * (smooth_data_d + smooth_data_u)
- 
+
 
 
     def _matrix_store_smooth_downhill(self):
@@ -660,11 +660,11 @@ class HeightMesh(TreMesh):
         Creates the sparse matrix form of the downhill operator.
 
         """
-        
+
         import time
         from scipy import sparse as sparse
-        from scipy.sparse import linalg as linalgs     
-     
+        from scipy.sparse import linalg as linalgs
+
 
         t = time.clock()
 
@@ -679,17 +679,17 @@ class HeightMesh(TreMesh):
         local_slope_array = np.zeros(64)
 
 
-        idx=0    
-        for row in range(0, len(self.neighbour_array_lo_hi)):    
-            neighbours  = self.neighbour_array_lo_hi[row]  
+        idx=0
+        for row in range(0, len(self.neighbour_array_lo_hi)):
+            neighbours  = self.neighbour_array_lo_hi[row]
             npoints  = self.tri.points[neighbours]
 
             ## work out (downhill) gradient to (max of three) nearby neighbours
-            
 
-            for col, column in enumerate(neighbours[0:3]):  
-      
-                delta_h = self.height[column] - self.height[row]   
+
+            for col, column in enumerate(neighbours[0:3]):
+
+                delta_h = self.height[column] - self.height[row]
 
 
                 if delta_h < 0.0:
@@ -700,26 +700,26 @@ class HeightMesh(TreMesh):
                     local_slope_array[col] = 1.0e-20
 
                 else:
-                    local_slope_array[col] = 1.0e-20    
-                    
-           # Normalise this so that it conserves mass (note - low points will have no contributions here !)           
-             
+                    local_slope_array[col] = 1.0e-20
+
+           # Normalise this so that it conserves mass (note - low points will have no contributions here !)
+
             norm = local_slope_array[0:len(neighbours)].sum()
             if norm != 0.0:
                 norm = 1.0 / norm
 
-            for col, column in enumerate(neighbours[0:3]):    
+            for col, column in enumerate(neighbours[0:3]):
                 row_array[idx] = row
-                col_array[idx] = column         
+                col_array[idx] = column
                 slope_array[idx] = local_slope_array[col] * norm
 
                 idx += 1
 
-        # We can re-pack this array into a sparse matrix for v. fast computation of downhill operator    
+        # We can re-pack this array into a sparse matrix for v. fast computation of downhill operator
 
         slopeCOO  = sparse.coo_matrix( (slope_array, (row_array, col_array)) ).T
-        slopeMat  = slopeCOO.tocsr() 
-        
+        slopeMat  = slopeCOO.tocsr()
+
         print "SlopeMat.shape ", slopeMat.shape, size
 
     #     slopeNormVec = np.array(slopeMat.sum(axis=1)).T[0]
@@ -731,10 +731,4 @@ class HeightMesh(TreMesh):
         slopeMat.eliminate_zeros()
         self.smoothDownhillMat = slopeMat
 
-        return 
-
-
-
-
-
-
+        return

@@ -1,21 +1,12 @@
 """
-Module for generating and manipulating  2D meshes for surface process simulations
+virtualmesh: defines the mesh classes required for the surface process models.
 
-The module defines a meshing class and some tools to create simple standalone meshes and calculate derivatives etc
+    VirtualMesh - defines the methods which need to be supplied for any valid 2D meshes
+    HeightMesh - the additional data and methods for
 
-    TriMesh
-    PixMesh
-    HeightMesh
-    SurfaceProcessMesh
-
-The TriMesh class builds a Delaunay triangulation and some higher-level data structures for
-consistent neighbourhood sweeping and differential operators (grad, div, del-squared) from
-the triangulation.
-
-Some plotting functions are included.
-
-See the help for each class / function for more detailed information
 
 """
 
-import class_definitions
+from .class_definitions import VirtualMesh
+from .class_definitions import HeightMesh
+from .class_definitions import SurfaceMesh
