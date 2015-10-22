@@ -41,7 +41,6 @@ class TriMesh(VirtualMesh):
         self.x = np.array(points_x)
         self.y = np.array(points_y)
         self.bmask = np.array(boundary_mask)
-        self.verbose = verbose
 
         walltime = time.clock()
         points = np.column_stack((self.x, self.y))
@@ -53,21 +52,21 @@ class TriMesh(VirtualMesh):
         ## Construct the neighbour list which is absent from the Voronoi data structure
 
         walltime = time.clock()
-        self._store_neighbour_information()
+        self.build_neighbours()
         if self.verbose:
             print " - Triangulation Neighbour Lists ", time.clock() - walltime,"s"
 
         ## Summation weights and local areas
 
         walltime = time.clock()
-        self._store_weights_and_measures()
+        self.build_node_weights_and_measures()
         if self.verbose:
             print " - Triangulation Local Areas and Weights ", time.clock() - walltime,"s"
 
         ## Matrix of gradient coefficients
 
         walltime = time.clock()
-        self._store_delaunay_grad_matrix()
+        self._delaunay_gradient_matrix()
         if self.verbose:
             print " - Triangulation Vector Operators ", time.clock() - walltime,"s"
 
@@ -129,7 +128,7 @@ class TriMesh(VirtualMesh):
         num_neighbours = np.zeros(len(self.tri.points), dtype=int)
 
         for node in range(0,len(self.tri.points)):
-            neighbours = self.neighbours(node)
+            neighbours = self.node_neighbours(node)
             num_neighbours[node] = len(neighbours)
             neighbour_list.append(neighbours)
 
@@ -453,8 +452,8 @@ class TriMesh(VirtualMesh):
         gradZy = -2 * self.y * Z
         del2Z  =  4 * Z * ( self.x**2 + self.y**2 - 1.0)
 
-        NgradZx,NgradZy = self.delaunay_grad(Z)
-        Ndel2Z = self.delaunay_div(NgradZx,NgradZy)
+        NgradZx,NgradZy = self.derivative_grad(Z)
+        Ndel2Z = self.derivative_div(NgradZx,NgradZy)
 
         gradError = (npl.norm(gradZx-NgradZx,2) + npl.norm(gradZy-NgradZy,2) ) / (npl.norm(gradZx,2) + npl.norm(gradZy,2))
         del2Error = npl.norm(del2Z-Ndel2Z,2) / npl.norm(del2Z,2)

@@ -18,7 +18,10 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         print "Surface mesh init"
 
 
-    def update_surface_processes(self):
+    def update_surface_processes(self, rainfall_pattern, sediment_distribution):
+
+        self.rainfall_pattern = rainfall_pattern.copy()
+        self.sediment_distribution = sediment_distribution.copy()
 
         import time
 
@@ -52,7 +55,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         #     wall_time = time.clock()
 
         wall_time = time.clock()
-        self.upstream_area = HeightMesh.cumulative_flow(self, self.area)
+        self.upstream_area = self.cumulative_flow(self, self.area)
 
         if self.verbose:
             print " - Built cumulative area", time.clock() - wall_time, "s"

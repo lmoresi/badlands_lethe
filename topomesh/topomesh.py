@@ -62,10 +62,10 @@ class TopoMesh(VirtualTopoMesh):
 
         import time
 
-        self.height = height
+        self.height = height.copy()
 
 
-        gradZx, gradZy = self.delaunay_grad(height)
+        gradZx, gradZy = self.derivative_grad(height)
         self.slope = np.sqrt(gradZx**2+gradZy**2)
 
         # Initialise the downhill/uphill data structures

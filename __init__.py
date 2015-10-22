@@ -26,14 +26,17 @@ See the help for each class / function for more detailed information
 
 """
 
+
+import tools as tools
+
+
 from .trimesh    import TriMesh  as _TriMesh
 from .pixmesh    import PixMesh  as _PixMesh
 from .topomesh   import TopoMesh as _TopoMeshClass
 from .surfmesh   import SurfaceProcessMesh as _SurfaceProcessMeshClass
-import tools as tools 
 
-known_mesh_classes = { "TriMesh" : _TriMesh,
-                       "PixMesh" : _PixMesh }
+known_basemesh_classes = { "TriMesh" : _TriMesh,
+                           "PixMesh" : _PixMesh }
 
 ## These are factory functions for the TopoMesh class and the
 ## SurfaceProcessMesh class. They bundle the chosen mesh class in
@@ -44,11 +47,11 @@ known_mesh_classes = { "TriMesh" : _TriMesh,
 
 def FlatMesh(BaseMeshType):
 
-    if BaseMeshType in known_mesh_classes.keys():
-        class C2D(known_mesh_classes[BaseMeshType]):
+    if BaseMeshType in known_basemesh_classes.keys():
+        class FlatMeshClass(known_basemesh_classes[BaseMeshType]):
             pass
 
-        return C2D()
+        return FlatMeshClass()
 
     else:
         print "Warning !! Mesh type {:s} unknown".format(BaseMeshType)
@@ -58,11 +61,11 @@ def FlatMesh(BaseMeshType):
 
 def TopoMesh(BaseMeshType):
 
-    if BaseMeshType in known_mesh_classes.keys():
-        class CT(_TopoMeshClass, known_mesh_classes[BaseMeshType]):
+    if BaseMeshType in known_basemesh_classes.keys():
+        class TopoMeshClass(_TopoMeshClass, known_basemesh_classes[BaseMeshType]):
             pass
 
-        return CT()
+        return TopoMeshClass()
 
     else:
         print "Warning !! Mesh type {:s} unknown".format(BaseMeshType)
@@ -73,11 +76,11 @@ def TopoMesh(BaseMeshType):
 
 def SurfaceProcessMesh(BaseMeshType):
 
-    if BaseMeshType in known_mesh_classes.keys():
-        class CSP(_SurfaceProcessMeshClass, _TopoMeshClass, known_mesh_classes[BaseMeshType] ):
+    if BaseMeshType in known_basemesh_classes.keys():
+        class SurfaceProcessMeshClass(_SurfaceProcessMeshClass, _TopoMeshClass, known_basemesh_classes[BaseMeshType] ):
             pass
 
-        return CSP()
+        return SurfaceProcessMeshClass()
 
     else:
         print "Warning !! Mesh type {:s} unknown".format(BaseMeshType)
