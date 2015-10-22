@@ -13,7 +13,7 @@ from scipy import sparse as sparse
 from scipy.sparse import linalg as linalgs
 
 
-class TriMesh(VirtualMesh):
+class PixMesh(VirtualMesh):
     """
     Takes a cloud of points and finds the Delaunay mesh using qhull. Note that this is
     not a meshing algorithm as such since this only produces a mesh useful for computation
@@ -21,29 +21,32 @@ class TriMesh(VirtualMesh):
 
     """
 
-    def __init__(self):
+    def __init__(self, verbose=False, **kwargs):
         """
         Initialise the class
         """
+        super(PixMesh, self).__init__()
+        print "PixMesh mesh init"
 
-        super(TriMesh, self).__init__()
-        self.mesh_type="ConvexTriMesh"
+        self.mesh_type="PixMesh"
+        self.verbose = verbose
 
 
-    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None,  filename=None):
+    def build_mesh(self, points_x=None, points_y=None ):
         """
         Initialise the triangulation and extend its data structures to include neighbour lists etc
         """
 
-        from scipy.spatial import Delaunay as __Delaunay
         import time
 
         self.x = np.array(points_x)
         self.y = np.array(points_y)
-        self.bmask = np.array(boundary_mask)
-        self.verbose = verbose
+
+        self.bmask = np.empty_like(self.x)
 
         walltime = time.clock()
+
+
         points = np.column_stack((self.x, self.y))
         self.tri = __Delaunay(points)
         if self.verbose:
@@ -79,21 +82,6 @@ class TriMesh(VirtualMesh):
         return
 
 
-
-   # def read_from_file(self, filename, **kwargs):
-   #     if filename:
-   #         try:
-   #             meshdata = np.load(filename)
-   #             self.x = meshdata['x']
-   #             self.y = meshdata['y']
-   #             self.bmask = meshdata['bmask']
-   #
-   #         except:
-   #             print "Invalid mesh file - ", filename
-   #
-   #
-   #
-   #
 
     def write_to_file(self, filename, **kwargs):
         '''

@@ -6,18 +6,28 @@
 ##
 
 
-class VirtualMesh:
+class VirtualMesh(object):
     """ Abstract class for triangulated meshes and regular pixel meshes (2D)
 
     Outlines the methods required for the general mesh types.
     Each type of mesh must implement these or provide an elegant fallback
     """
 
-    mesh_type="NoMesh"
+    def __init__(self):
+        """ Generic initialisation for non-specific
+            Mesh implementation
+        """
 
-    def __init__(self, **kwargs):
-        print "Abstract mesh is a base mesh class and cannot be instantiated in its own right"
-        raise NotImplementedError()
+        ## This is a place to list variables that need to
+        ## be defined on the class
+
+        print "VirtualMesh __init__fn"
+
+        self.mesh_type = None
+        self.verbose = False
+
+        pass
+
 
     def build_mesh(self, **kwargs):
         # Absorb any args in order to raise the correct exception !
@@ -69,9 +79,36 @@ class VirtualMesh:
     ## Consider adding smoothing kernels
 
 
+## These need to reflect the correct names, but the topomesh and surfmesh files will still work as expected.
+
 class VirtualTopoMesh(VirtualMesh):
     """ Adds methods to deal with Topography """
 
+    def __init__(self):
+
+        super(VirtualTopoMesh, self).__init__()
+        # print "VirtualTopoMesh __init__ fn"
+
+        ## Placeholders for variables which need to be set
+        self.height = None
+        self.slope = None
+        self.node_high_to_low = None
+        self.neighbour_array_lo_hi = None
+
+    def mesh_update_height():
+        pass
 
 class VirtualSurfaceProcessMesh(VirtualTopoMesh):
     """ Adds methods to deal with erosion / transport etc """
+
+    def __init__(self):
+
+        super(VirtualSurfaceProcessMesh, self).__init__()
+        print "VirtualSPMesh __init__ fn"
+
+        ## Placeholders for variables which need to be set
+        self.rainfall_pattern = None
+
+
+    def sp_specific_methods():
+        pass

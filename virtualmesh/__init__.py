@@ -8,5 +8,5 @@ virtualmesh: defines the mesh classes required for the surface process models.
 """
 
 from .class_definitions import VirtualMesh
-from .class_definitions import HeightMesh
-from .class_definitions import SurfaceMesh
+from .class_definitions import VirtualTopoMesh
+from .class_definitions import VirtualSurfaceProcessMesh

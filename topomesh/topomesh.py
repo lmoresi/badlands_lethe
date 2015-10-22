@@ -14,34 +14,40 @@ class TopoMesh(VirtualTopoMesh):
 
     name="Generic_Height_TreMesh"
 
-    def __init__(self, points_x=None, points_y=None, height=None, boundary_mask=None, verbose=None, filename=None):
+    def __init__(self):
 
-        """
-        Initialise the Delaunay mesh (parent) and build height data structures
-        """
+    #    VirtualTopoMesh.__init__(self)
+        super(TopoMesh, self).__init__()
+        print "Topo mesh init"
 
-        # initialise the mesh itself from the parent TreMesh class
-        TreMesh.__init__(self, points_x=points_x, points_y=points_y,
-                               boundary_mask=boundary_mask,
-                               verbose=verbose, filename=filename)
 
-        # Add the height field (and compute slope, create a height-sorted index list)
-
-        if filename:
-            try:
-                meshdata = np.load(filename)
-                self.height = meshdata['height']
-
-            except:
-                # Will have already bombed if not a valid mesh file
-                print "Invalid height mesh file - ", filename
-
-        else:
-            self.height = height
-
-        self.update_height(self.height)
-
-        return
+    #
+    #     """
+    #     Initialise the Delaunay mesh (parent) and build height data structures
+    #     """
+    #
+    #     # initialise the mesh itself from the parent TreMesh class
+    #     TreMesh.__init__(self, points_x=points_x, points_y=points_y,
+    #                            boundary_mask=boundary_mask,
+    #                            verbose=verbose, filename=filename)
+    #
+    #     # Add the height field (and compute slope, create a height-sorted index list)
+    #
+    #     if filename:
+    #         try:
+    #             meshdata = np.load(filename)
+    #             self.height = meshdata['height']
+    #
+    #         except:
+    #             # Will have already bombed if not a valid mesh file
+    #             print "Invalid height mesh file - ", filename
+    #
+    #     else:
+    #         self.height = height
+    #
+    #     self.update_height(self.height)
+    #
+    #     return
 
 
     def update_height(self, height):
@@ -57,6 +63,7 @@ class TopoMesh(VirtualTopoMesh):
         import time
 
         self.height = height
+
 
         gradZx, gradZy = self.delaunay_grad(height)
         self.slope = np.sqrt(gradZx**2+gradZy**2)

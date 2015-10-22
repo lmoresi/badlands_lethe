@@ -15,4 +15,4 @@ See the help for each class / function for more detailed information
 
 """
 
-from .trimesh     import TriMesh
+from .pixmesh     import PixMesh

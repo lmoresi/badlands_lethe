@@ -3,10 +3,9 @@
 
 import numpy as np
 import math
-from .. import TreMesh
-from . import HeightMesh
+from ..virtualmesh import VirtualSurfaceProcessMesh
 
-class SurfaceProcessMesh(HeightMesh):
+class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
     """
     Builds a TriMesh/HeightMesh (2D) object and adds a height field and data structures / operators
     to propagate information across the surface (e.g. flow downhill)
@@ -14,38 +13,10 @@ class SurfaceProcessMesh(HeightMesh):
 
     name="Generic_SurfaceProcess_TriMesh"
 
-    def __init__(self, points_x=None, points_y=None, height=None, rainfall_pattern=None, sediment=None,
-                       uplift=None, boundary_mask=None, verbose=None, filename=None):
+    def __init__(self, **kwargs):
+        super(SurfaceProcessMesh, self).__init__()
+        print "Surface mesh init"
 
-        """
-        Initialise the Delaunay mesh (parent) and build height data structures
-        """
-
-        # initialise the mesh itself from the parent HeightMesh class
-
-        HeightMesh.__init__(self, points_x, points_y, height, boundary_mask, verbose=verbose, filename=filename)
-
-        # From the height field, build the river networks etc
-
-        if filename:
-            try:
-                meshdata = np.load(filename)
-                self.rainfall_pattern = meshdata['rainfall_pattern']
-                self.sediment = meshdata['sediment']
-                self.uplift = meshdata['uplift']
-
-            except:
-                # Will have already bombed if not a valid mesh file
-                print "Invalid SurfaceProcessMesh file - ", filename
-
-        else:
-            self.rainfall_pattern = rainfall_pattern
-            self.sediment = sediment
-            self.uplift = uplift
-
-        self.update_surface_processes()
-
-        return
 
     def update_surface_processes(self):
 
