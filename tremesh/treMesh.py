@@ -127,17 +127,22 @@ class TreMesh:
         neighbour_list = []
         num_neighbours = np.zeros(len(self.tri.points), dtype=int)
 
+
         for node in range(0,len(self.tri.points)):
             neighbours = self.neighbours(node)
             num_neighbours[node] = len(neighbours)
             neighbour_list.append(neighbours)
+            if num_neighbours[node] < 2:
+                print "  Warning, node {:d} has {:d} neighbours !!".format( node, num_neighbours[node] )
+
 
         self.neighbour_list = neighbour_list
 
         neighbour_array = np.array(self.neighbour_list)
 
         for node, node_array in enumerate(neighbour_array):
-            neighbour_array[node] = np.hstack( (node, node_array) )
+            if(len(node_array)):
+                neighbour_array[node] = np.hstack( (node, node_array) )
 
         self.neighbour_array = neighbour_array
 
@@ -205,7 +210,10 @@ class TreMesh:
             # area[triangle]  += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0]) / 6.0
 
         area = ntriw / 6.0
-        ntriw = 1.0 / ntriw
+
+        ntriw1 = 1.0 / ntriw
+        ntriw = np.where(ntriw != 0.0, ntriw1, 0.0)
+
 
         self.area = np.array(area)
         self.weight = np.array(ntriw)
@@ -673,7 +681,10 @@ class TreMesh:
         idx=0
         for row in range(0, len(self.neighbour_array)):
             neighbours  = self.neighbour_array[row]
-            weight =  1.0/len(neighbours)
+            if len(neighbours != 0.0):
+                weight =  1.0/len(neighbours)
+            else:
+                weight = 0.0
 
             for col, column in enumerate(neighbours):
                 row_array[idx] = row
