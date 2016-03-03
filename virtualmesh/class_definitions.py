@@ -64,7 +64,7 @@ class VirtualMesh(object):
         """
         raise NotImplementedError()
 
-    def derivative_grad(self, PSIx, PSIy):
+    def derivative_div(self, PSIx, PSIy):
         """ Divergence of vector data, PSIx, PSIy, on the mesh.
         """
         raise NotImplementedError()
