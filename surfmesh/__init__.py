@@ -26,4 +26,4 @@ See the help for each class / function for more detailed information
 
 """
 
-from .surfacemesh import SurfaceProcessMesh
+from .surfaceMesh import SurfaceProcessMesh
