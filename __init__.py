@@ -29,6 +29,7 @@ See the help for each class / function for more detailed information
 
 import tools as tools
 
+import petsc
 
 from .trimesh    import TriMesh  as _TriMesh
 from .pixmesh    import PixMesh  as _PixMesh
