@@ -5,87 +5,92 @@ from .vector import Vector as _Vector
 from ._sparsetools import coo_tocsr, csr_tocoo, sum_duplicates
 petsc4py.init(sys.argv)
 
-class Matrix(PETSc.Mat):
+class Matrix(object):
     """
     Extends the PETSc.Mat class with additional methods and tools for easy matrix operations.
+    These methods are similar to those in the SciPy sparse matrix module, but for parallel operations.
 
-    All matrix operations must be carried out with PETSc objects defined here.
+    The PETSc Matrix object is stored in `self.mat` and can be referenced directly.
+    However, the methods defined here should be sufficiently comprehensive.
     """
 
     name = "PETSc_Matrix"
 
-    def __init__(self, I, J, V, shape, comm):
+    def __init__(self, I=None, J=None, V=None, shape=None, comm=None, PETSc_mat=None):
         """
         Initialises the PETSc Matrix object to import methods for matrix multiplication, etc.
         Accepts COO matrix format vectors and converts them to CSR for PETSc.
 
             ARGUMENTS
-                I, J, V  : row, col, val sparse arrays arrays (COO matrix format)
-                shape    : global dimensions of the matrix -- tuple(nrows, ncols)
-                comm     : MPI communicator object
+                I, J, V    : row, col, val sparse matrix arrays (COO matrix format)
+                shape      : global dimensions of the matrix -- tuple(nrows, ncols)
+                comm       : MPI communicator object -- use mpi4py.MPI.COMM_WORLD
+
+                PETSc_Mat  : existing matrix object (other arguments are not required)
         """
 
-        # Convert integers to dtype int32
-        I = I.astype('int32')
-        J = J.astype('int32')
-
-        self.shape = shape
-
-        # Sum duplicate entries
-        I, J, V = sum_duplicates(I, J, V)
-
-        ## Here we assume data is read in by rows
-        n = shape[0] // comm.size + int(comm.rank < (shape[0] % comm.size))
-        start = 0
-        for r in xrange(0, comm.rank):
-            start += shape[0] // comm.size + int(r < (shape[0] % comm.size))
-
-        nnz = np.bincount(I)[start:start+n].astype('int32')
-
-        # Ensure vectors are in sequential order
-        idx = np.lexsort([J, I])
-        I, J, V = I[idx], J[idx], V[idx]
-
-        # Initialise PETSc matrix object
-        PETSc.Mat.__init__(self)
-        self.create(comm=comm)
-        self.setType('aij')
-
-        if comm.size > 1:
-            self.setSizes(((n, shape[0]), (n, shape[1])))
+        if PETSc_mat:
+            self.mat = PETSc_mat
         else:
-            self.setSizes((n, n))
+            # Sum duplicate entries
+            I, J, V = sum_duplicates(I.astype('int32'), J.astype('int32'), V)
 
-        gindices = np.arange(start, start+n, dtype='int32')
+            ## Here we assume data is read in by rows
+            n = shape[0] // comm.size + int(comm.rank < (shape[0] % comm.size))
+            start = 0
+            for r in xrange(0, comm.rank):
+                start += shape[0] // comm.size + int(r < (shape[0] % comm.size))
 
-        # self.setPreallocationNNZ((nnz[gindices], nnz[~gindices]))
-        self.setPreallocationNNZ(nnz)
+            nnz = np.bincount(I)[start:start+n].astype('int32')
 
-        # Allow matrix insertion using local indices [0:n+2]
-        lgmap = PETSc.LGMap()
-        lgmap.create(list(gindices), comm=comm)
-        self.setLGMap(lgmap, lgmap)
+            # Ensure vectors are in sequential order
+            idx = np.lexsort([J, I])
+            I, J, V = I[idx], J[idx], V[idx]
 
-        # Read in data
-        self.setValuesCSR(np.insert(np.cumsum(nnz),0,0).astype('int32'), J, V)
+            # Initialise PETSc matrix object
+            self.mat = PETSc.Mat()
+            self.mat.create(comm=comm)
+            self.mat.setType('aij')
 
-        # depreciated method to read in data
-        # for i, row in enumerate(gindices):
-        #     self[row, cols[i]] = data[i]
+            if comm.size > 1:
+                self.mat.setSizes(((n, shape[0]), (n, shape[1])))
+            else:
+                self.mat.setSizes((n, n))
 
-        self.start = start
-        self.assemblyBegin()
-        self.assemblyEnd()
+            gindices = np.arange(start, start+n, dtype='int32')
+
+            # self.mat.setPreallocationNNZ((nnz[gindices], nnz[~gindices]))
+            self.mat.setPreallocationNNZ(nnz)
+
+            # Allow matrix insertion using local indices [0:n+2]
+            lgmap = PETSc.LGMap()
+            lgmap.create(list(gindices), comm=comm)
+            self.mat.setLGMap(lgmap, lgmap)
+
+            # Read in data
+            self.mat.setValuesCSR(np.insert(np.cumsum(nnz),0,0).astype('int32'), J, V)
+
+            self.mat.assemblyBegin()
+            self.mat.assemblyEnd()
+
+
+        # Query PETSc properties
+        self.start = self.mat.getOwnershipRange()[0]
+        self.sizes = self.mat.getSizes()
+        self.shape = (self.sizes[0][1], self.sizes[1][1]) # global shape
+        self.local_shape = (self.sizes[0][0], self.sizes[1][0]) # local shape
+
+
 
     def todense(self):
-        """ dense numpy matrix """
-        return np.matrix(self[:,:])
+        """ dense numpy matrix (for sequential matrices only) """
+        return np.matrix(self.mat[:,:])
     def toarray(self):
-        """ numpy array with the same dimensions """
-        return np.array(self[:,:])
+        """ numpy array with the same dimensions (for sequential matrices only) """
+        return np.array(self.mat[:,:])
     def diagonal(self):
         """ diagonal of the matrix """
-        return self.getDiagonal()[:]
+        return self.mat.getDiagonal()[:]
 
     def __mul__(self, B):
         """
@@ -93,11 +98,11 @@ class Matrix(PETSc.Mat):
             C = A * B
         """
         if isinstance(B, _Vector):
-            vec = self.createVecRight()
-            self.mult(B, vec)
+            vec = self.mat.createVecRight()
+            self.mat.mult(B, vec)
             return vec
         elif isinstance(B, Matrix):
-            return self.matMult(B)
+            return Matrix(PETSc_mat=self.mat.matMult(B.mat))
         else:
             raise NotImplementedError()
 
@@ -113,54 +118,49 @@ class Matrix(PETSc.Mat):
         element-wise addition
             C = A + B
         """
-        shape = self.getSize()
-        indptr, indices, data = self.getValuesCSR()
-        # A_idxc = np.split(indices, indptr)
-        # A_data = np.split(data, indptr)
-
+        indptr, indices, data = self.mat.getValuesCSR()
         I, J, V = csr_tocoo(indptr, indices, data)
 
         # Identify type and shape of B
         if isinstance(B, Matrix):
             assert self.shape == B.shape
-            B_indptr, B_indices, B_data = B.getValuesCSR()
+            B_indptr, B_indices, B_data = B.mat.getValuesCSR()
             BI, BJ, BV = csr_tocoo(B_indptr, B_indices, B_data)
             I, J, V = np.append(I, BI), np.append(J, BJ), np.append(V, BV)
-            # I, J, V = sum_duplicates(I, J, V)
 
-            # for row, cols in enumerate(A_indxc[1:-1]):
+        elif isinstance(B, _Vector):
+            raise NotImplementedError()
 
-        # elif isinstance(B, (np.array(0), list)):
-        #     B = np.asarray(B)
-        #     assert B.size in shape
-
-        # elif isinstance(B, (float, int, bool)):
+        elif isinstance(B, (float, int, bool)):
+            raise NotImplementedError()
 
         else:
-            raise TypeError("Need a valid type:\n - PETSc Matrix\n - NumPy ndarray\n - float")
+            raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
 
-        return Matrix(self.start+I, J, V, self.shape, self.comm)
+        return Matrix(self.start+I, J, V, self.shape, self.mat.comm)
 
     def __iadd__(self, B):
         """
         element-wise in-place addition with another PETSc matrix
             A += B
         """
-        shape = self.getSize()
-        I, J, V = B.getValuesCSR()
+        indptr, indices, data = self.mat.getValuesCSR()
+        I, J, V = csr_tocoo(indptr, indices, data)
 
         # Identify type and shape of B
         if isinstance(B, Matrix):
-            IB, JB, VB = B.getValuesCSR()
-            I, J, V = np.append(I, IB), np.append(J, JB), np.append(V, VB)
+            assert self.shape == B.shape
+            B_indptr, B_indices, B_data = B.mat.getValuesCSR()
+            BI, BJ, BV = csr_tocoo(B_indptr, B_indices, B_data)
+            I, J, V = np.append(I, BI), np.append(J, BJ), np.append(V, BV)
 
-        # elif isinstance(B, (np.array(0), list)):
-        #     B = np.asarray(B)
-        #     assert B.size in shape
+        elif isinstance(B, _Vector):
+            raise NotImplementedError()
 
-        # elif isinstance(B, (float, int, bool)):
+        elif isinstance(B, (float, int, bool)):
+            raise NotImplementedError()
 
         else:
-            raise TypeError("Need a valid type:\n - PETSc Matrix\n - NumPy ndarray\n - float")
+            raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
 
-        self.__init__(I, J, V, shape, self.comm)
+        self.__init__(self.start+I, J, V, self.shape, self.mat.comm)
