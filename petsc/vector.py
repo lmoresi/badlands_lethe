@@ -1,7 +1,6 @@
 import numpy as np
 import sys, petsc4py
 from petsc4py import PETSc
-from .petsc import Matrix as _Matrix
 petsc4py.init(sys.argv)
 
 class Vector(PETSc.Vec):
@@ -9,6 +8,7 @@ class Vector(PETSc.Vec):
     Extends the PETSc.Vec class with additional methods and simple set up.
 
     The PETSc.Vec class is much more complete than the PETSc.Mat class.
+    Methods and attributes are similar to a NumPy ndarray.
     """
 
     name = "PETSc_Vector"
@@ -22,7 +22,6 @@ class Vector(PETSc.Vec):
                 size  : global size of the vector
                 comm  : MPI communicator object
         """
-        self.shape = (size,)
 
         PETSc.Vec.__init__(self)
         self.createMPI(size, comm=comm)

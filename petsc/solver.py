@@ -32,8 +32,8 @@ def solve(A, b, ksp=None, pc=None, comm=None):
         KSP.setType(ksp)
     KSP.setFromOptions()
 
-    KSP.setOperators(A)
-    x = A.createVecRight()
+    KSP.setOperators(A.mat)
+    x = A.mat.createVecRight()
     KSP.solve(b, x)
     KSP.destroy()
 
@@ -79,8 +79,8 @@ class Solver(PETSc.KSP):
                 x  : NumPy array (m,)
         """
 
-        self.pc.setUseAmat(A)
-        self.ksp.setOperators(A)
+        self.pc.setUseAmat(A.mat)
+        self.ksp.setOperators(A.mat)
 
         if len(B.shape) == 1:
             # Create resultant vector
