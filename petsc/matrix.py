@@ -75,8 +75,8 @@ class Matrix(object):
 
 
         # Query PETSc properties
-        self.start = self.mat.getOwnershipRange()[0]
-        self.sizes = self.mat.getSizes()
+        self.start = self.mat.owner_range[0]
+        self.sizes = self.mat.sizes
         self.shape = (self.sizes[0][1], self.sizes[1][1]) # global shape
         self.local_shape = (self.sizes[0][0], self.sizes[1][0]) # local shape
 
@@ -106,6 +106,16 @@ class Matrix(object):
         else:
             raise NotImplementedError()
 
+    def __imul__(self, B):
+        """
+        element-wise Matrix-Matrix multiplication
+        """
+        if isinstance(B, Matrix):
+            mul_mat = self.mat.matMult(B.mat)
+            self.__init__(PETSc_mat=mul_mat)
+        else:
+            raise TypeError('Not a valid PETSc object')
+
     def dot(self, B):
         """
         Matrix-Matrix or Matrix-Vector multiplication
@@ -118,15 +128,14 @@ class Matrix(object):
         element-wise addition
             C = A + B
         """
-        indptr, indices, data = self.mat.getValuesCSR()
-        I, J, V = csr_tocoo(indptr, indices, data)
+        sum_mat = self.mat.copy()
 
         # Identify type and shape of B
         if isinstance(B, Matrix):
             assert self.shape == B.shape
-            B_indptr, B_indices, B_data = B.mat.getValuesCSR()
-            BI, BJ, BV = csr_tocoo(B_indptr, B_indices, B_data)
-            I, J, V = np.append(I, BI), np.append(J, BJ), np.append(V, BV)
+            indptr, indices, data = B.mat.getValuesCSR()
+            sum_mat.setValuesCSR(indptr, indices, data, addv=True)
+            sum_mat.assemble()
 
         elif isinstance(B, _Vector):
             raise NotImplementedError()
@@ -137,22 +146,19 @@ class Matrix(object):
         else:
             raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
 
-        return Matrix(self.start+I, J, V, self.shape, self.mat.comm)
+        return Matrix(PETSc_mat=sum_mat)
 
     def __iadd__(self, B):
         """
         element-wise in-place addition with another PETSc matrix
             A += B
         """
-        indptr, indices, data = self.mat.getValuesCSR()
-        I, J, V = csr_tocoo(indptr, indices, data)
-
         # Identify type and shape of B
         if isinstance(B, Matrix):
             assert self.shape == B.shape
-            B_indptr, B_indices, B_data = B.mat.getValuesCSR()
-            BI, BJ, BV = csr_tocoo(B_indptr, B_indices, B_data)
-            I, J, V = np.append(I, BI), np.append(J, BJ), np.append(V, BV)
+            indptr, indices, data = B.mat.getValuesCSR()
+            self.mat.setValuesCSR(indptr, indices, data, addv=True)
+            self.mat.assemble()
 
         elif isinstance(B, _Vector):
             raise NotImplementedError()
@@ -163,4 +169,48 @@ class Matrix(object):
         else:
             raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
 
-        self.__init__(self.start+I, J, V, self.shape, self.mat.comm)
+    def __sub__(self, B):
+        """
+        element-wise subtraction
+            C = A - B
+        """
+        sum_mat = self.mat.copy()
+
+        # Identify type and shape of B
+        if isinstance(B, Matrix):
+            assert self.shape == B.shape
+            indptr, indices, data = B.mat.getValuesCSR()
+            sum_mat.setValuesCSR(indptr, indices, -data, addv=True)
+            sum_mat.assemble()
+
+        elif isinstance(B, _Vector):
+            raise NotImplementedError()
+
+        elif isinstance(B, (float, int, bool)):
+            raise NotImplementedError()
+
+        else:
+            raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
+
+        return Matrix(PETSc_mat=sum_mat)
+
+    def __isub__(self, B):
+        """
+        element-wise in-place subtraction with another PETSc matrix
+            A += B
+        """
+        # Identify type and shape of B
+        if isinstance(B, Matrix):
+            assert self.shape == B.shape
+            indptr, indices, data = B.mat.getValuesCSR()
+            self.mat.setValuesCSR(indptr, indices, -data, addv=True)
+            self.mat.assemble()
+
+        elif isinstance(B, _Vector):
+            raise NotImplementedError()
+
+        elif isinstance(B, (float, int, bool)):
+            raise NotImplementedError()
+
+        else:
+            raise TypeError("Need a valid type:\n - PETSc Matrix\n - PETSc Vector\n - NumPy ndarray\n - float")
