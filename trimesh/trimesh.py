@@ -30,21 +30,24 @@ class TriMesh(VirtualMesh):
         self.mesh_type="ConvexTriMesh"
 
 
-    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None,  filename=None):
+    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None, filename=None):
         """
         Initialise the triangulation and extend its data structures to include neighbour lists etc
         """
 
-        from scipy.spatial import Delaunay as __Delaunay
+        from ..tools import Triangulation as __Triangulation
         import time
 
-        self.x = np.array(points_x)
-        self.y = np.array(points_y)
-        self.bmask = np.array(boundary_mask)
+        if filename:
+            self.read_from_file(filename)
+        else:
+            self.x = np.array(points_x)
+            self.y = np.array(points_y)
+            self.bmask = np.array(boundary_mask)
 
         walltime = time.clock()
-        points = np.column_stack((self.x, self.y))
-        self.tri = __Delaunay(points)
+        self.tri = __Triangulation(self.x, self.y)
+        self.tri.triangulate()
         if self.verbose:
             print " - Calculating Delaunay Triangulation ", time.clock() - walltime,"s"
 
@@ -79,24 +82,29 @@ class TriMesh(VirtualMesh):
 
 
 
-   # def read_from_file(self, filename, **kwargs):
-   #     if filename:
-   #         try:
-   #             meshdata = np.load(filename)
-   #             self.x = meshdata['x']
-   #             self.y = meshdata['y']
-   #             self.bmask = meshdata['bmask']
-   #
-   #         except:
-   #             print "Invalid mesh file - ", filename
-   #
-   #
-   #
-   #
+    def read_from_file(self, filename, **kwargs):
+        """
+        Read TriMesh data from a file.
+        Restores x, y, and triangulation information sufficient to rebuild the mesh.
+        """
+
+        if filename:
+            try:
+                meshdata = np.load(filename)
+
+            except:
+                print "Invalid mesh file - {s}".format(filename)
+
+            else:
+                meshdata = np.load(filename)
+                self.x = meshdata['x']
+                self.y = meshdata['y']
+                self.bmask = meshdata['bmask']
+
 
     def write_to_file(self, filename, **kwargs):
         '''
-        Save TreMesh data to a file - stores x, y and triangulation information sufficient to
+        Save TriMesh data to a file - stores x, y and triangulation information sufficient to
         retrieve, plot and rebuild the mesh. Saves any given data
 
         '''
@@ -119,27 +127,32 @@ class TriMesh(VirtualMesh):
            for computation (i.e. include the central node as well as the neighbours) - this is important
            when computing derivatives at boundaries for example.
         """
-
+        from scipy.spatial import cKDTree
         import time
 
         # walltime = time.clock()
+        bins = np.bincount(self.tri.simplices.flatten())
+        placeholder = np.zeros(self.tri.simplices.size, dtype=bool)
+        tree = cKDTree(np.column_stack([placeholder,self.tri.simplices.flatten()]))
+
+        d, index = tree.query(np.column_stack([np.zeros(self.tri.npoints, dtype=bool),
+                                               np.arange(self.tri.npoints)]), k=bins.max())
 
         neighbour_list = []
-        num_neighbours = np.zeros(len(self.tri.points), dtype=int)
+        neighbour_array = []
+        num_neighbours = np.zeros(self.tri.npoints, dtype=int)
 
-        for node in range(0,len(self.tri.points)):
-            neighbours = self.node_neighbours(node)
+        for node in xrange(self.tri.npoints):
+            # i,j = np.where(self.tri.simplices == node)
+            simplices_subset = self.tri.simplices[index[node,:bins[node]]//3]
+            # simplices_subset = self.tri.simplices[i]
+            neighbours = np.unique(simplices_subset)
             num_neighbours[node] = len(neighbours)
-            neighbour_list.append(neighbours)
+            neighbour_list.append(neighbours[neighbours != node])
+            neighbour_array.append(neighbours)
 
         self.neighbour_list = neighbour_list
-
-        neighbour_array = np.array(self.neighbour_list)
-
-        for node, node_array in enumerate(neighbour_array):
-            neighbour_array[node] = np.hstack( (node, node_array) )
-
-        self.neighbour_array = neighbour_array
+        self.neighbour_array = np.array(neighbour_array)
 
         # And now a closed polygon of the encircling neighbours (include self if on boundary)
         # To use this for integration etc, we need an ordered list
