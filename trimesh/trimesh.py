@@ -30,9 +30,11 @@ class TriMesh(VirtualMesh):
         self.mesh_type="ConvexTriMesh"
 
 
-    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None, filename=None):
+    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None, filename=None, **kwargs):
         """
         Initialise the triangulation and extend its data structures to include neighbour lists etc
+        Enter keywords to pass to the triangulation operation.
+        ** would be good to have the boundary mask specify the shape of the exterior.
         """
 
         from ..tools import Triangulation as __Triangulation
@@ -47,7 +49,7 @@ class TriMesh(VirtualMesh):
 
         walltime = time.clock()
         self.tri = __Triangulation(self.x, self.y)
-        self.tri.triangulate()
+        self.tri.triangulate(kwargs)
         if self.verbose:
             print " - Calculating Delaunay Triangulation ", time.clock() - walltime,"s"
 
@@ -139,20 +141,14 @@ class TriMesh(VirtualMesh):
                                                np.arange(self.tri.npoints)]), k=bins.max())
 
         neighbour_list = []
-        neighbour_array = []
-        num_neighbours = np.zeros(self.tri.npoints, dtype=int)
 
         for node in xrange(self.tri.npoints):
-            # i,j = np.where(self.tri.simplices == node)
             simplices_subset = self.tri.simplices[index[node,:bins[node]]//3]
-            # simplices_subset = self.tri.simplices[i]
             neighbours = np.unique(simplices_subset)
-            num_neighbours[node] = len(neighbours)
             neighbour_list.append(neighbours[neighbours != node])
-            neighbour_array.append(neighbours)
 
         self.neighbour_list = neighbour_list
-        self.neighbour_array = np.array(neighbour_array)
+        neighbour_array = np.array(self.neighbour_list)
 
         # And now a closed polygon of the encircling neighbours (include self if on boundary)
         # To use this for integration etc, we need an ordered list
@@ -164,10 +160,11 @@ class TriMesh(VirtualMesh):
         # walltime = time.clock()
 
         for node, node_array in enumerate(closed_neighbourhood_array):
+            neighbour_array[node] = np.hstack( (node, node_array) )
 
             # Boundary nodes, the encircling nodes includes the node itself
             if not self.bmask[node]:
-                node_array = np.hstack( (node_array, node) )
+                node_array = neighbour_array[node]
 
             # Now order the list (use centroid since the node is included in boundary loops)
 
@@ -177,21 +174,22 @@ class TriMesh(VirtualMesh):
                 cy = yy.mean() #!!
                 rx = xx - cx
                 ry = yy - cy
-                tt = np.arctan2(rx, ry)
+
+                ordering = np.arctan2(rx, ry).argsort()
 
             else:
                 xx = self.x[node_array] - self.x[node]
                 yy = self.y[node_array] - self.y[node]
-                tt = np.arctan2(xx, yy)
 
-            ordering = np.argsort(tt)
+                ordering = np.arctan2(xx, yy).argsort()
+
             neighbourhood_array[node] = node_array[ordering]
 
             # Now close the polygon
 
             closed_neighbourhood_array[node] = np.hstack( (neighbourhood_array[node], neighbourhood_array[node][0]) )
 
-
+        self.neighbour_array = neighbour_array
         # print "  Closed, sorted neighbours - ", time.clock() - walltime,"s"
 
 
@@ -208,20 +206,15 @@ class TriMesh(VirtualMesh):
         """
 
         ntriw = np.zeros(self.tri.npoints)
-        area  = np.zeros(self.tri.npoints)
 
-        for idx, triangle in  enumerate(self.tri.simplices):
-            coords = self.tri.points[ triangle ]
+        for idx, triangle in enumerate(self.tri.simplices):
+            coords = self.tri.points[triangle]
             vector1 = coords[1] - coords[0]
             vector2 = coords[2] - coords[0]
             ntriw[triangle] += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0])
-            # area[triangle]  += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0]) / 6.0
 
-        area = ntriw / 6.0
-        ntriw = 1.0 / ntriw
-
-        self.area = np.array(area)
-        self.weight = np.array(ntriw)
+        self.area = ntriw / 6.0
+        self.weight = 1.0 / ntriw
 
         return
 
