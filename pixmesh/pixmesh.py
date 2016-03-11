@@ -32,45 +32,48 @@ class PixMesh(VirtualMesh):
         self.verbose = verbose
 
 
-    def build_mesh(self, points_x=None, points_y=None ):
+    def build_mesh(self, points_x=None, points_y=None, boundary_mask=None):
         """
         Initialise the triangulation and extend its data structures to include neighbour lists etc
+
+        At the moment this can only handle variable mesh resolution in one direction.
+        It would be nice to have mesh refinement in both axes, but it is harder to find neighbours.
         """
 
-        import time
+        # Sort x,y points
+        ind = np.lexsort((points_y, points_x))
 
-        self.x = np.array(points_x)
-        self.y = np.array(points_y)
+        self.x = np.array(points_x)[ind]
+        self.y = np.array(points_y)[ind]
 
-        self.bmask = np.empty_like(self.x)
+        self.points = np.column_stack([self.x, self.y])
+        self.npoints = self.x.size
+
+        ## Construct the boundary mask
 
         walltime = time.clock()
-
-
-        points = np.column_stack((self.x, self.y))
-        self.tri = __Delaunay(points)
+        self.build_boundary_mask()
         if self.verbose:
-            print " - Calculating Delaunay Triangulation ", time.clock() - walltime,"s"
-
+            print "- Constructing boundary mask ", time.clock() - walltime,"s"
 
         ## Construct the neighbour list which is absent from the Voronoi data structure
 
         walltime = time.clock()
-        self._store_neighbour_information()
+        self.build_neighbours()
         if self.verbose:
             print " - Triangulation Neighbour Lists ", time.clock() - walltime,"s"
 
         ## Summation weights and local areas
 
         walltime = time.clock()
-        self._store_weights_and_measures()
+        self.build_node_weights_and_measures()
         if self.verbose:
             print " - Triangulation Local Areas and Weights ", time.clock() - walltime,"s"
 
         ## Matrix of gradient coefficients
 
         walltime = time.clock()
-        self._store_delaunay_grad_matrix()
+        self._delaunay_gradient_matrix()
         if self.verbose:
             print " - Triangulation Vector Operators ", time.clock() - walltime,"s"
 
@@ -93,12 +96,17 @@ class PixMesh(VirtualMesh):
         np.savez(filename, x=self.x, y=self.y, bmask=self.bmask, triang=self.tri.simplices, **kwargs )
 
 
-    def node_neighbours(self, centre_point):
+    def build_boundary_mask(self):
         """
-        Returns a list of neighbour nodes for a given point in the delaunay triangulation
+        Build the boundary mask from input x,y points
         """
+        bmask = np.zeros(self.npoints, dtype=bool)
+        bmask += self.x == self.x.min()
+        bmask += self.x == self.x.max()
+        bmask += self.y == self.y.min()
+        bmask += self.y == self.y.max()
 
-        return self.tri.vertex_neighbor_vertices[1][self.tri.vertex_neighbor_vertices[0][centre_point]:self.tri.vertex_neighbor_vertices[0][centre_point+1]]
+        self.bmask = bmask
 
 
     def build_neighbours(self):
@@ -109,95 +117,84 @@ class PixMesh(VirtualMesh):
            when computing derivatives at boundaries for example.
         """
 
+        from scipy.spatial import cKDTree
         import time
 
-        # walltime = time.clock()
+        indices = np.arange(self.npoints, dtype=int)
 
-        neighbour_list = []
-        num_neighbours = np.zeros(len(self.tri.points), dtype=int)
+        # Mask the corner nodes
+        corners = np.zeros(self.npoints, dtype=bool)
+        corners += np.logical_and(self.x == self.x.min(), self.y == self.y.max())
+        corners += np.logical_and(self.x == self.x.max(), self.y == self.y.min())
+        corners[0] = True
+        corners[-1] = True
 
-        for node in range(0,len(self.tri.points)):
-            neighbours = self.neighbours(node)
-            num_neighbours[node] = len(neighbours)
-            neighbour_list.append(neighbours)
+        cmask = self.bmask - corners
 
-        self.neighbour_list = neighbour_list
 
-        neighbour_array = np.array(self.neighbour_list)
+        tree = cKDTree(self.points)
 
-        for node, node_array in enumerate(neighbour_array):
-            neighbour_array[node] = np.hstack( (node, node_array) )
+        # find 4 nearest neighbours for interior nodes
+        d, ind_interior = tree.query(self.points[~self.bmask], k=5)
 
-        self.neighbour_array = neighbour_array
+        # find 3 nearest neighbours for boundary nodes (minus corners)
+        d, ind_boundary = tree.query(self.points[cmask], k=4)
 
-        # And now a closed polygon of the encircling neighbours (include self if on boundary)
-        # To use this for integration etc, we need an ordered list
+        # find 2 nearest neighbours for corner nodes
+        d, ind_corner = tree.query(self.points[corners], k=3)
 
-        closed_neighbourhood_array = np.array(self.neighbour_list)
-        neighbourhood_array = np.array(self.neighbour_list)
 
-        # print "  Unsorted neighbours - ", time.clock() - walltime,"s"
-        # walltime = time.clock()
+        # Sort neighbour array of arrays by nodes
 
-        for node, node_array in enumerate(closed_neighbourhood_array):
+        order = np.concatenate([indices[~self.bmask], indices[cmask], indices[corners]]).argsort()
+        neighbour_list = np.array(list(ind_interior)+list(ind_boundary)+list(ind_corner))[order]
 
-            # Boundary nodes, the encircling nodes includes the node itself
-            if not self.bmask[node]:
-                node_array = np.hstack( (node_array, node) )
+        neighbour_array = np.array(neighbour_list)
+        closed_neighbourhood_array = np.array(neighbour_list)
+        neighbourhood_array = np.array(neighbour_list)
 
-            # Now order the list (use centroid since the node is included in boundary loops)
+        # Order the list
 
-                xx = self.x[node_array]
-                yy = self.y[node_array]
-                cx = xx.mean() #!!
-                cy = yy.mean() #!!
-                rx = xx - cx
-                ry = yy - cy
-                tt = np.arctan2(rx, ry)
+        for node, node_array in enumerate(neighbour_list):
+            neighbour_list[node] = node_array[node_array!=node]
+            node_array = np.hstack( (node, neighbour_list[node]) )
+            neighbour_array[node] = node_array
 
-            else:
-                xx = self.x[node_array] - self.x[node]
-                yy = self.y[node_array] - self.y[node]
-                tt = np.arctan2(xx, yy)
+            rx = self.x[node_array] - self.x[node]
+            ry = self.y[node_array] - self.y[node]
 
-            ordering = np.argsort(tt)
+            ordering = np.arctan2(rx, ry).argsort()
             neighbourhood_array[node] = node_array[ordering]
-
-            # Now close the polygon
 
             closed_neighbourhood_array[node] = np.hstack( (neighbourhood_array[node], neighbourhood_array[node][0]) )
 
-
-        # print "  Closed, sorted neighbours - ", time.clock() - walltime,"s"
-
-
-        self.closed_neighbourhood_array = closed_neighbourhood_array
+        self.neighbour_list = neighbour_list
+        self.neighbour_array = neighbour_array
         self.neighbourhood_array = neighbourhood_array
-
+        self.closed_neighbourhood_array = closed_neighbourhood_array
 
         return
 
     def build_node_weights_and_measures(self):
         """
-        Stores the local areas and the local weights for summation for each
-        point in the Delaunay triangulation
+        Stores the local areas and the local weights for summation for each point in the mesh.
+        More than likely, the weights will not be necessary for PixMesh, but we include them
+        anyway in case the user wants mesh refinement.
         """
 
-        ntriw = np.zeros(self.tri.npoints)
-        area  = np.zeros(self.tri.npoints)
+        npixw = np.zeros(self.npoints)
 
-        for idx, triangle in  enumerate(self.tri.simplices):
-            coords = self.tri.points[ triangle ]
+        for node, node_array in enumerate(self.neighbourhood_array):
+            coords = self.points[node_array]
             vector1 = coords[1] - coords[0]
             vector2 = coords[2] - coords[0]
-            ntriw[triangle] += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0])
-            # area[triangle]  += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0]) / 6.0
+            npixw[node_array] += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0])
 
-        area = ntriw / 6.0
-        ntriw = 1.0 / ntriw
+        # self.area = npixw / 4.0
+        # self.weight = 1.0 / npixw
 
-        self.area = np.array(area)
-        self.weight = np.array(ntriw)
+        self.area = np.ones(self.npoints)
+        self.weight = np.ones(self.npoints)
 
         return
 
@@ -293,8 +290,8 @@ class PixMesh(VirtualMesh):
         for row in range(0, len(self.neighbourhood_array)):
             neighbours  = self.neighbourhood_array[row]
             cneighbours = self.closed_neighbourhood_array[row]
-            npoints  = self.tri.points[neighbours]
-            cnpoints = self.tri.points[cneighbours]
+            npoints  = self.points[neighbours]
+            cnpoints = self.points[cneighbours]
 
             for col, column in enumerate(neighbours):
 
@@ -404,15 +401,16 @@ class PixMesh(VirtualMesh):
         return smooth_data
 
 
-    def add_node_data_to_plot(self, this_plot_ax, data, shading="gouraud", **kwargs ):
+    def add_node_data_to_plot(self, this_plot_ax, data, **kwargs ):
         """
         Adds a tripcolor plot of node data on this mesh to an existing plot (matplotlib axis)
         No error checking - that is handled by matplotlib.
         """
+        resX = np.unique(self.x).size
+        resY = np.unique(self.y).size
 
-        sm1 = this_plot_ax.tripcolor(self.x, self.y, self.tri.simplices.copy(), data, shading=shading, **kwargs)
-
-        return sm1
+        return this_plot_ax.imshow(data.reshape(resY, resX), origin='lower',
+                                   extent=[self.x.min(), self.x.max(), self.y.min(), self.y.max()])
 
     def add_node_contours_to_plot(self, this_plot_ax, data, *args, **kwargs ):
         """
@@ -441,8 +439,8 @@ class PixMesh(VirtualMesh):
         gradZy = -2 * self.y * Z
         del2Z  =  4 * Z * ( self.x**2 + self.y**2 - 1.0)
 
-        NgradZx,NgradZy = self.delaunay_grad(Z)
-        Ndel2Z = self.delaunay_div(NgradZx,NgradZy)
+        NgradZx,NgradZy = self.derivative_grad(Z)
+        Ndel2Z = self.derivative_div(NgradZx,NgradZy)
 
         gradError = (npl.norm(gradZx-NgradZx,2) + npl.norm(gradZy-NgradZy,2) ) / (npl.norm(gradZx,2) + npl.norm(gradZy,2))
         del2Error = npl.norm(del2Z-Ndel2Z,2) / npl.norm(del2Z,2)
