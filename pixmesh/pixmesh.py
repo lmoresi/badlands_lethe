@@ -2,34 +2,30 @@
 ##
 ## Python surface process modelling classes
 ##
-
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 from ..virtualmesh import VirtualMesh as VirtualMesh
 
 import numpy as np
 import math
 import time
 
-from scipy import sparse as sparse
-from scipy.sparse import linalg as linalgs
-
+from ..petsc import Matrix as petsc_matrix
 
 class PixMesh(VirtualMesh):
     """
-    Takes a cloud of points and finds the Delaunay mesh using qhull. Note that this is
-    not a meshing algorithm as such since this only produces a mesh useful for computation
-    if the boundary is convex.
+    Takes a cartesian domain of points and creates spatial derivatives.
+    This is not a meshing algorithm, use the functions in the tools folder to create
+    a suitable rectangular mesh for use with this object.
 
     """
 
-    def __init__(self, verbose=False, **kwargs):
+    def __init__(self, **kwargs):
         """
         Initialise the class
         """
         super(PixMesh, self).__init__()
-        print "PixMesh mesh init"
-
         self.mesh_type="PixMesh"
-        self.verbose = verbose
 
 
     def build_mesh(self, points_x=None, points_y=None, boundary_mask=None):
@@ -61,21 +57,21 @@ class PixMesh(VirtualMesh):
         walltime = time.clock()
         self.build_neighbours()
         if self.verbose:
-            print " - Triangulation Neighbour Lists ", time.clock() - walltime,"s"
+            print " - Mesh Neighbour Lists ", time.clock() - walltime,"s"
 
         ## Summation weights and local areas
 
         walltime = time.clock()
         self.build_node_weights_and_measures()
         if self.verbose:
-            print " - Triangulation Local Areas and Weights ", time.clock() - walltime,"s"
+            print " - Mesh Local Areas and Weights ", time.clock() - walltime,"s"
 
         ## Matrix of gradient coefficients
 
         walltime = time.clock()
-        self._delaunay_gradient_matrix()
+        self._gradient_matrix()
         if self.verbose:
-            print " - Triangulation Vector Operators ", time.clock() - walltime,"s"
+            print " - Mesh Vector Operators ", time.clock() - walltime,"s"
 
         walltime = time.clock()
         self._matrix_build_local_area_smoothing_matrix()
@@ -111,10 +107,9 @@ class PixMesh(VirtualMesh):
 
     def build_neighbours(self):
         """
-        1) Create a list of neighbour information (absent from the original tri data structures)
+        1) Create a list of neighbour information exploiting the rectangular spacing of nodes
         2) Create an np.array with information needed to create matrices of interaction coefficients
-           for computation (i.e. include the central node as well as the neighbours) - this is important
-           when computing derivatives at boundaries for example.
+           for computation.
         """
 
         from scipy.spatial import cKDTree
@@ -173,75 +168,71 @@ class PixMesh(VirtualMesh):
         self.neighbourhood_array = neighbourhood_array
         self.closed_neighbourhood_array = closed_neighbourhood_array
 
+        # store KDTree for interpolation
+        self.tree = tree
+
         return
 
     def build_node_weights_and_measures(self):
         """
         Stores the local areas and the local weights for summation for each point in the mesh.
-        More than likely, the weights will not be necessary for PixMesh, but we include them
-        anyway in case the user wants mesh refinement.
+        Weights should be uniform across the entire domain if points are regularly spaced.
+        But we find the individual weights anyway for the use case of mesh refinement.
         """
 
-        npixw = np.zeros(self.npoints)
+        area = np.zeros(self.npoints)
 
-        for node, node_array in enumerate(self.neighbourhood_array):
+        for node, node_array in enumerate(self.neighbour_array):
             coords = self.points[node_array]
-            vector1 = coords[1] - coords[0]
-            vector2 = coords[2] - coords[0]
-            npixw[node_array] += abs(vector1[0]*vector2[1] - vector1[1]*vector2[0])
+            vectors = coords[1:] - coords[0]
+            rxy = np.abs(vectors).max(axis=0)
+            area[node] = rxy.prod()
 
-        # self.area = npixw / 4.0
-        # self.weight = 1.0 / npixw
-
-        self.area = np.ones(self.npoints)
-        self.weight = np.ones(self.npoints)
+        self.area = area
+        self.weight = area * 4
 
         return
 
-    def _barycentric_coords(self, triangle, coord):
+
+    def interpolate(self, data, coord):
         """
-        For a given triangle (2D simplex) in the triangulation, return the
-        barycentric coordinates for the coordinate.
+        Interpolates the data array to an arbitrary coord within the domain.
+         - coord must be a list of desired interpolation points
+         - interpolated_values is a np.array the same length as coord
 
-        This function is probably only useful for precomputation.
-        """
-
-        local = coord - self.tri.transform[triangle,2,:]
-        bary = self.tri.transform[triangle,:2,:2].dot(local)
-        return np.array([bary[0], bary[1], 1-bary.sum()])
-
-    def _interpolate_bc(self, data, triangle, bary_coord):
-        return bary_coord.dot( data[self.tri.simplices[triangle]] )
-
-    def interpolate(self, data, coord, error_value=0.0):
-        """
-        Interpolates the data array from the points of the triangulation to an arbitrary coord
-        within the domain. If the coord is not within the domain then error_value is returned along with
-        a False flag.
-
-        e.g. value, success = trimesh.interpolate( data_array, (x,y) , 0.0 )
         """
 
-        ## Should check that data is a suitable sized array
+        coord = np.asarray(coord)
+        if coord.size == coord.shape[0]:
+            raise NotImplementedError('Can only interpolate an array of coordinates, not a single coordinate')
 
-        triangle = self.tri.find_simplex(coord)
+        interpolated_values = np.empty(coord.shape[0])
 
-        if triangle == -1:
-            return error_value, False
+        # Find any coordinates on the mesh
+        d, ind = self.tree.query(coord)
 
-        ## See the documentation for scipy.spatial for an explanation of this:
+        mask = d == 0
+        interpolated_values[mask] = data[ind[mask]]
 
-        local = coord - self.tri.transform[triangle,2,:]
-        bary = self.tri.transform[triangle,:2,:2].dot(local)
-        bc = np.array([bary[0], bary[1], 1-bary.sum()])
+        # Interpolate the rest
+        entries = np.arange(0, interpolated_values.shape[0], dtype=int)[~mask]
+        d, ind = self.tree.query(coord, k=4)
 
-        values = data[self.tri.simplices[triangle]]
-        interpolated_value = values.dot(bc)
 
-        return interpolated_value, True
+        A = np.ones((4,4))
 
-##  Differential operators on the triangulation
+        for i in entries:
+            cx, cy = self.x[ind[i]], self.y[ind[i]]
 
+            A[:,1] = cx
+            A[:,2] = cy
+            A[:,3] = cx*cy
+            b = data[ind[i]]
+
+            coeff, residuals, rank, s = np.linalg.lstsq(A, b)
+            interpolated_values[i] = (coeff * [1., coord[i,0], coord[i,1], coord[i,0]*coord[i,1]]).sum()
+
+        return interpolated_values
 
 
     def derivative_grad(self, PHI):
@@ -266,9 +257,9 @@ class PixMesh(VirtualMesh):
         return self.gradM2.dot(PHI)
 
 
-    def _delaunay_gradient_matrix(self):
+    def _gradient_matrix(self):
         """
-        Creates the sparse matrix form of the gradient operator (and del squared) from the unstructured grid.
+        Creates the sparse matrix form of the gradient operator (and del squared) from the mesh.
             self.gradMx,
             self.gradMy,
             self.gradM2
@@ -310,11 +301,8 @@ class PixMesh(VirtualMesh):
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
 
-        gradMxCOO  = sparse.coo_matrix( (grad_x_array, (row_array, col_array)) ).T
-        gradMyCOO  = sparse.coo_matrix( (grad_y_array, (row_array, col_array)) ).T
-
-        gradMx = gradMxCOO.tocsr()
-        gradMy = gradMyCOO.tocsr()
+        gradMx = petsc_matrix(row_array, col_array, grad_x_array, comm=comm).transpose()
+        gradMy = petsc_matrix(row_array, col_array, grad_y_array, comm=comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -364,9 +352,7 @@ class PixMesh(VirtualMesh):
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
 
-        smoothCOO  = sparse.coo_matrix( (smooth_array, (row_array, col_array)) )
-
-        smoothMat = smoothCOO.tocsr()
+        smoothMat = petsc_matrix(row_array, col_array, smooth_array, comm=comm)
 
         self.localSmoothMat = smoothMat
 
@@ -403,7 +389,7 @@ class PixMesh(VirtualMesh):
 
     def add_node_data_to_plot(self, this_plot_ax, data, **kwargs ):
         """
-        Adds a tripcolor plot of node data on this mesh to an existing plot (matplotlib axis)
+        Adds a imshow plot of node data on this mesh to an existing plot (matplotlib axis)
         No error checking - that is handled by matplotlib.
         """
         resX = np.unique(self.x).size
@@ -411,16 +397,6 @@ class PixMesh(VirtualMesh):
 
         return this_plot_ax.imshow(data.reshape(resY, resX), origin='lower',
                                    extent=[self.x.min(), self.x.max(), self.y.min(), self.y.max()])
-
-    def add_node_contours_to_plot(self, this_plot_ax, data, *args, **kwargs ):
-        """
-        Adds a tripcolor plot of node data on this mesh to an existing plot (matplotlib axis)
-        No error checking - that is handled by matplotlib.
-        """
-
-        sm1 = this_plot_ax.tricontour(self.x, self.y, self.tri.simplices.copy(), data, *args, **kwargs)
-
-        return sm1
 
 
     def assess_derivative_quality(self):
