@@ -35,6 +35,8 @@ class Matrix(object):
             # Sum duplicate entries
             I, J, V = sum_duplicates(I.astype('int32'), J.astype('int32'), V)
 
+            if shape is None:
+                shape = (np.max(I)+1, np.max(J)+1)
             ## Here we assume data is read in by rows
             n = shape[0] // comm.size + int(comm.rank < (shape[0] % comm.size))
             start = 0
@@ -91,6 +93,9 @@ class Matrix(object):
     def diagonal(self):
         """ diagonal of the matrix """
         return self.mat.getDiagonal()[:]
+    def transpose(self):
+        """ transpose matrix """
+        return Matrix(PETSc_mat=self.mat.transpose())
 
     def __mul__(self, B):
         """
@@ -100,9 +105,15 @@ class Matrix(object):
         if isinstance(B, _Vector):
             vec = self.mat.createVecRight()
             self.mat.mult(B, vec)
-            return vec
+            return vec.array
         elif isinstance(B, Matrix):
             return Matrix(PETSc_mat=self.mat.matMult(B.mat))
+        elif isinstance(B, np.ndarray):
+            B2, vec = self.mat.createVecs()
+            gindices = np.arange(self.start, self.start+self.local_shape[0], dtype='int32')
+            B2.setValues(gindices, B)
+            self.mat.mult(B2, vec)
+            return vec.array
         else:
             raise NotImplementedError()
 
@@ -121,7 +132,7 @@ class Matrix(object):
         Matrix-Matrix or Matrix-Vector multiplication
             C = A * B
         """
-        self.__mul__(B)
+        return self.__mul__(B)
 
     def __add__(self, B):
         """
