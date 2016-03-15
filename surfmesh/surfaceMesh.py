@@ -55,7 +55,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         #     wall_time = time.clock()
 
         wall_time = time.clock()
-        self.upstream_area = self.cumulative_flow(self, self.area)
+        self.upstream_area = self.cumulative_flow(self.area)
 
         if self.verbose:
             print " - Built cumulative area", time.clock() - wall_time, "s"
