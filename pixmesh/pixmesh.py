@@ -36,11 +36,8 @@ class PixMesh(VirtualMesh):
         It would be nice to have mesh refinement in both axes, but it is harder to find neighbours.
         """
 
-        # Sort x,y points
-        ind = np.lexsort((points_y, points_x))
-
-        self.x = np.array(points_x)[ind]
-        self.y = np.array(points_y)[ind]
+        self.x = np.array(points_x)
+        self.y = np.array(points_y)
 
         self.points = np.column_stack([self.x, self.y])
         self.npoints = self.x.size
