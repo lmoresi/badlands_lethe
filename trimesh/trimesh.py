@@ -2,15 +2,15 @@
 ##
 ## Python surface process modelling classes
 ##
-
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 from ..virtualmesh import VirtualMesh as VirtualMesh
 
 import numpy as np
 import math
 import time
 
-from scipy import sparse as sparse
-from scipy.sparse import linalg as linalgs
+from ..petsc import Matrix as petsc_matrix
 
 
 class TriMesh(VirtualMesh):
@@ -34,7 +34,6 @@ class TriMesh(VirtualMesh):
         """
         Initialise the triangulation and extend its data structures to include neighbour lists etc
         Enter keywords to pass to the triangulation operation.
-        ** would be good to have the boundary mask specify the shape of the exterior.
         """
 
         from ..tools import Triangulation as __Triangulation
@@ -330,11 +329,8 @@ class TriMesh(VirtualMesh):
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
 
-        gradMxCOO  = sparse.coo_matrix( (grad_x_array, (row_array, col_array)) ).T
-        gradMyCOO  = sparse.coo_matrix( (grad_y_array, (row_array, col_array)) ).T
-
-        gradMx = gradMxCOO.tocsr()
-        gradMy = gradMyCOO.tocsr()
+        gradMx = petsc_matrix(row_array, col_array, grad_x_array, comm=comm).transpose()
+        gradMy = petsc_matrix(row_array, col_array, grad_y_array, comm=comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -383,10 +379,7 @@ class TriMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-
-        smoothCOO  = sparse.coo_matrix( (smooth_array, (row_array, col_array)) )
-
-        smoothMat = smoothCOO.tocsr()
+        smoothMat = petsc_matrix(row_array, col_array, smooth_array, comm=comm)
 
         self.localSmoothMat = smoothMat
 

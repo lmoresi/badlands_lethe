@@ -4,10 +4,10 @@ Module for generating and manipulating unstructured 2D meshes for surface proces
 The module defines three meshing classes and some tools to create simple standalone meshes
 
     SurfaceProcessMesh(HeightMesh)
-    HeightMesh(TriMesh)
-    TreMesh
+    HeightMesh(TriMesh / PixMesh)
+    TriMesh / PixMesh
 
-The TreMesh class builds a Delaunay triangulation and some higher-level data structures for
+The TriMesh class builds a Delaunay triangulation and some higher-level data structures for
 consistent neighbourhood sweeping and differential operators (grad, div, del-squared) from
 the triangulation.
 
@@ -43,7 +43,7 @@ known_basemesh_classes = { "TriMesh" : _TriMesh,
 ## SurfaceProcessMesh class. They bundle the chosen mesh class in
 ## underneath the topography and surface process functions.
 ## For consistency of the interface, we define a FlatMesh factory
-## function here as well even through the TriMesh and PixMesh are
+## function here as well even though the TriMesh and PixMesh are
 ## equivalent
 
 def FlatMesh(BaseMeshType):
