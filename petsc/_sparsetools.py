@@ -8,9 +8,9 @@ import numpy as np
 
 def csr_tocoo(indptr, indices, data):
     """ Convert from CSR to COO sparse matrix format """
-    I = np.zeros_like(indices)
-    I[indptr[1:-1]] += 1
-    return np.cumsum(I, dtype='int32'), indices, data
+    d = np.diff(indptr)
+    I = np.repeat(np.arange(0,d.size,dtype='int32'), d)
+    return I, indices, data
 
 def coo_tocsr(I, J, V):
     """ Convert from COO to CSR sparse matrix format """
