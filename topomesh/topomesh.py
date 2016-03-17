@@ -1,6 +1,7 @@
 ## Surface mesh (subclass of mesh) - this defines a TriMesh plus height plus all of the paraphernalia to evolve the height
 
-
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 import numpy as np
 import math
 from ..virtualmesh import VirtualTopoMesh
@@ -8,7 +9,7 @@ from ..virtualmesh import VirtualTopoMesh
 
 class TopoMesh(VirtualTopoMesh):
     """
-    Builds a TreMesh (2D) object and adds a height field and data structures / operators
+    Builds a TriMesh (2D) object and adds a height field and data structures / operators
     to propagate information across the surface (e.g. flow downhill)
     """
 
@@ -110,7 +111,7 @@ class TopoMesh(VirtualTopoMesh):
 
         neighbour_array_lo_hi = self.neighbour_array.copy()  # easiest way to get size / structure right
 
-        for node in range(0,self.tri.npoints):
+        for node in xrange(0,self.tri.npoints):
             heights = self.height[self.neighbour_array[node]]
             neighbour_array_lo_hi[node] = self.neighbour_array[node][np.argsort(heights)]
 
@@ -205,30 +206,23 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from scipy import sparse as sparse
+        from ..petsc import Matrix as petsc_matrix
 
-
-        down_neighbour = np.empty(self.tri.npoints, dtype=np.int)
-
-        for node in range (0,self.tri.npoints):
-            down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
-
-        # Build a matrix of downhill-ness - one entry per node !
+        down_neighbour = np.empty(self.tri.npoints, dtype=int)
 
         size = self.tri.npoints
-        row_array  = np.empty(size, dtype = int)
-        col_array  = np.empty(size, dtype = int)
-        down_array = np.ones(size)
+        row_array  = np.empty(size, dtype=int)
+        col_array  = np.empty(size, dtype=int)
         accu_array = np.ones(size)
 
+        # Build a matrix of downhill-ness - one entry per node !
+        for node in xrange(0,self.tri.npoints):
+            down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
+            row_array[node] = node
+            col_array[node] = down_neighbour[node]
 
-        for row in range(0, self.tri.npoints):
-            row_array[row] = row
-            col_array[row] = down_neighbour[row]
 
-        accuMCOO = sparse.coo_matrix( (accu_array, (row_array, col_array)), shape=(size,size) ).T
-
-        self.accumulatorMat  = accuMCOO.tocsr()
+        self.accumulatorMat = petsc_matrix(row_array, col_array, accu_array, shape=(size,size), comm=comm).transpose()
 
         self._build_adjacency_matrix_1()
         self._build_adjacency_matrix_2()
@@ -270,38 +264,31 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from scipy import sparse as sparse
+        from ..petsc import Matrix as petsc_matrix
 
-        down_neighbour = np.empty(self.tri.npoints)
-
-        for node in range (0,self.tri.npoints):
-            down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
-
-        # Build a matrix of downhill-ness - one entry per node !
+        down_neighbour = np.empty(self.tri.npoints, dtype=int)
 
         size = self.tri.npoints
-        row_array  = np.empty(size)
-        col_array  = np.empty(size)
+        row_array  = np.empty(size, dtype=int)
+        col_array  = np.empty(size, dtype=int)
         down_array = np.ones(size)
 
-        # Catch cases where node is local low point (i.e. it is its own low neighbour)
+        # Build a matrix of downhill-ness - one entry per node !
+        for node in xrange(0,self.tri.npoints):
+            down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
+            row_array[node] = node
+            col_array[node] = down_neighbour[node]
+            if node == down_neighbour[node]:
+                # Catch cases where node is local low point (i.e. it is its own low neighbour)
+                down_array[node] = 0.0
 
-        for row in range(0, self.tri.npoints):
-            row_array[row] = row
-            col_array[row] = down_neighbour[row]
-            if row == down_neighbour[row]:
-               down_array[row] = 0.0
-
-
-        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T
-
-        self.adjacency1 = downMCOO.tocsr()
+        self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
         # repetition of values in the COO list which are summed on conversion.
 
-        if downMCOO.shape[0] != downMCOO.shape[1]:
+        if self.adjacency1.shape[0] != self.adjacency1.shape[1]:
             # This approach works but is a lot slower
 
             print """
@@ -309,16 +296,20 @@ class TopoMesh(VirtualTopoMesh):
             Because there are degeneracies in the slope - particularly at the boundaries
             A small random perturbation is usually enough to fix this problem
             """
-            downMat = sparse.lil_matrix((size, size))
+            from scipy.sparse import lil_matrix
+            downMat = lil_matrix((size, size))
 
-            for row in range(0, self.tri.npoints):
+            for row in xrange(0, self.tri.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in range(0, self.tri.npoints):
+            for row in xrange(0, self.tri.npoints):
                 if down_neighbour[row] == row:
                     downMat[row,row] = 0.0
 
-            self.adjacency1 = downMat.T.tocsr()
+            downMat = downMat.tocoo()
+            row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
+
+            self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
 
         return
 
@@ -332,40 +323,35 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from scipy import sparse as sparse
+        from ..petsc import Matrix as petsc_matrix
 
-        down_neighbour = np.empty(self.tri.npoints)
-        down_neighbour1 = np.empty(self.tri.npoints)
-
-        for node in range (0,self.tri.npoints):
-            down_neighbour[node]  = self.neighbour_array_lo_hi[node][0]
-            down_neighbour1[node] = self.neighbour_array_lo_hi[node][1]
-
-        # Build a matrix of downhill-ness - one entry per node !
+        down_neighbour = np.empty(self.tri.npoints, dtype=int)
+        down_neighbour1 = np.empty(self.tri.npoints, dtype=int)
 
         size = self.tri.npoints
-        row_array  = np.empty(size)
-        col_array  = np.empty(size)
+        row_array  = np.empty(size, dtype=int)
+        col_array  = np.empty(size, dtype=int)
         down_array = np.ones(size)
 
-        # Catch cases where node is local low point (i.e. it is its own low neighbour)
-        for row in range(0, self.tri.npoints):
-            row_array[row] = row
-            col_array[row] = down_neighbour1[row]
-            if row == down_neighbour[row]:
-                down_array[row] = 0.0
-            if row == down_neighbour1[row]:
-                col_array[row] = down_neighbour[row]
+        # Build a matrix of downhill-ness - one entry per node !
+        for node in xrange(0,self.tri.npoints):
+            down_neighbour[node]  = self.neighbour_array_lo_hi[node][0]
+            down_neighbour1[node] = self.neighbour_array_lo_hi[node][1]
+            row_array[node] = node
+            col_array[node] = down_neighbour1[node]
+            if node == down_neighbour[node]:
+                # Catch cases where node is local low point (i.e. it is its own low neighbour)
+                down_array[node] = 0.0
+            if node == down_neighbour1[node]:
+                col_array[node] = down_neighbour[node]
 
-
-        downMCOO = sparse.coo_matrix( (down_array, (row_array, col_array)), shape=(size,size) ).T
-        self.adjacency2 = downMCOO.tocsr()
+        self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
         # repetition of values in the COO list which are summed on conversion.
 
-        if downMCOO.shape[0] != downMCOO.shape[1]:
+        if self.adjacency2.shape[0] != self.adjacency2.shape[1]:
             # This approach works but is a lot slower
 
             print """
@@ -373,16 +359,20 @@ class TopoMesh(VirtualTopoMesh):
             Because there are degeneracies in the slope - particularly at the boundaries
             A small random perturbation is usually enough to fix this problem
             """
-            downMat = sparse.lil_matrix((size, size))
+            from scipy.sparse import lil_matrix
+            downMat = lil_matrix((size, size))
 
-            for row in range(0, self.tri.npoints):
+            for row in xrange(0, self.tri.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in range(0, self.tri.npoints):
+            for row in xrange(0, self.tri.npoints):
                 if row == down_neighbour[row] or row == down_neighbour1[row]:
                     downMat[row,row] = 0.0
 
-            self.adjacency2 = downMat.T.tocsr()
+            downMat = downMat.tocoo()
+            row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
+
+            self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
 
         return
 
@@ -401,8 +391,7 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from scipy import sparse as sparse
-
+        from ..petsc import Matrix as petsc_matrix
 
         walltime = time.clock()
 
@@ -431,7 +420,7 @@ class TopoMesh(VirtualTopoMesh):
 
         # Turn this into a loop !
 
-        A1 = self.downhillMat.tocsr()
+        A1 = self.downhillMat
         A2  = A1.dot(A1)
         A2a = A1 + A2
         A4 = A2.dot(A2)
@@ -455,10 +444,15 @@ class TopoMesh(VirtualTopoMesh):
         print " - Dense downhill matrix storage time v2", time.clock() - walltime
         print " - Maximum path length ", 128
 
+        # make identity matrix
+        size = self.tri.npoints
+        diag_IJ = np.arange(size, dtype='int32')
+        diag_V  = np.ones(size, dtype='float32')
 
-        downHillaccuMat = downHillaccuMat + sparse.identity(self.tri.npoints, format='csr')
+        identityMat = petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(size,size), comm=comm)
 
-        downHillaccuMat2 = A128a + sparse.identity(self.tri.npoints, format='csr')
+        downHillaccuMat += identityMat
+        downHillaccuMat2 = A128a + identityMat
 
 
         return downHillaccuMat, downHillaccuMat2
@@ -478,7 +472,7 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from scipy import sparse as sparse
+        from ..petsc import Matrix as petsc_matrix
 
         downSweepMat    = self.accumulatorMat.copy()
         downHillaccuMat = self.downhillMat.copy()
@@ -498,7 +492,12 @@ class TopoMesh(VirtualTopoMesh):
 
         print " - Dense downhill matrix storage time ", time.clock() - walltime
 
-        downHillaccuMat = downHillaccuMat + sparse.identity(self.tri.npoints, format='csr')
+        # make identity matrix
+        size = self.tri.npoints
+        diag_IJ = np.arange(size, dtype='int32')
+        diag_V  = np.ones(size, dtype='float32')
+
+        downHillaccuMat += petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(size,size), comm=comm)
 
         self.downhillCumulativeMat = downHillaccuMat
         self.sweepDownToOutflowMat = downSweepMat
@@ -630,12 +629,12 @@ class TopoMesh(VirtualTopoMesh):
 
     def uphill_smoothing(self, data, its, centre_weight=0.5):
 
-        norm2 =  self.downhillMat.T.dot(np.ones_like(self.x))
+        norm2 =  self.downhillMat.Tdot(np.ones_like(self.x))
         norm2[norm2 != 0.0] = 1.0 / norm2[norm2 != 0.0]
         smooth_data = data.copy()
 
         for i in range(0,its):
-            smooth_data   = (1.0-centre_weight) * self.downhillMat.T.dot(smooth_data) * norm2  + \
+            smooth_data   = (1.0-centre_weight) * self.downhillMat.Tdot(smooth_data) * norm2  + \
                             smooth_data * np.where(norm2==0.0, 1.0, centre_weight)
 
         smooth_data *= data.mean() / smooth_data.mean()
@@ -669,8 +668,7 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from scipy import sparse as sparse
-        from scipy.sparse import linalg as linalgs
+        from ..petsc import Matrix as petsc_matrix
 
 
         t = time.clock()
@@ -723,9 +721,8 @@ class TopoMesh(VirtualTopoMesh):
                 idx += 1
 
         # We can re-pack this array into a sparse matrix for v. fast computation of downhill operator
-
-        slopeCOO  = sparse.coo_matrix( (slope_array, (row_array, col_array)) ).T
-        slopeMat  = slopeCOO.tocsr()
+        n = row_array.max() + 1
+        slopeMat = petsc_matrix(row_array, col_array, slope_array, shape=(n,n), comm=comm).transpose()
 
         print "SlopeMat.shape ", slopeMat.shape, size
 
@@ -735,7 +732,6 @@ class TopoMesh(VirtualTopoMesh):
     #     slopeNormMat.setdiag(slopeNormVec)
     #     slopeMat = slopeNormMat.dot(slopeMat)
 
-        slopeMat.eliminate_zeros()
         self.smoothDownhillMat = slopeMat
 
         return
