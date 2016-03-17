@@ -136,6 +136,7 @@ class Matrix(object):
             self.mat.mult(B2, vec)
             return vec.array
         elif isinstance(B, (float, int, bool)):
+            # element-wise multiplication
             indptr, indices, data = self.mat.getValuesCSR()
             M = Matrix(PETSc_mat=self.mat.copy())
             M.mat.setValuesCSR(indptr, indices, data*float(B), addv=False)
@@ -155,12 +156,20 @@ class Matrix(object):
         else:
             raise TypeError('Not a valid PETSc object')
 
-    def __rmul__(self, B):
+    def __rmul__(self, a):
         """
-        Matrix-Matrix or Matrix-Vector multiplication
-            C = B * A
+        element-wise scalar multiplication
+            C = a * A
         """
-        return self.__mul__(B)
+        if isinstance(a, (float, int, bool)):
+            # element-wise multiplication
+            indptr, indices, data = self.mat.getValuesCSR()
+            M = Matrix(PETSc_mat=self.mat.copy())
+            M.mat.setValuesCSR(indptr, indices, data*float(a), addv=False)
+            M.mat.assemble()
+            return M
+        else:
+            raise NotImplementedError()
 
     def dot(self, B):
         """
