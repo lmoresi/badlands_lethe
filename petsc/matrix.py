@@ -63,7 +63,7 @@ class Matrix(object):
             # Sum duplicate entries
             I, J, V = sum_duplicates(I, J, V)
 
-            nnz = np.bincount(I)[start:start+n].astype('int32')
+            nnz = np.bincount(I, minlength=n)[start:start+n].astype('int32')
 
             # Ensure vectors are in sequential order
             idx = np.lexsort([J, I])
