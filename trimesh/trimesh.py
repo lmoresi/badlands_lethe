@@ -2,8 +2,6 @@
 ##
 ## Python surface process modelling classes
 ##
-from mpi4py import MPI
-comm = MPI.COMM_WORLD
 from ..virtualmesh import VirtualMesh as VirtualMesh
 
 import numpy as np
@@ -46,9 +44,16 @@ class TriMesh(VirtualMesh):
             self.y = np.array(points_y)
             self.bmask = np.array(boundary_mask)
 
+        # Catch instance where mesh decomposition is not called
+        if self.decomposition_type == "no decomposition":
+            self.N, self.n = self.x.size, self.x.size
+            self.start = 0
+
         walltime = time.clock()
         self.tri = __Triangulation(self.x, self.y)
-        self.tri.triangulate(kwargs)
+        self.tri.triangulate(**kwargs)
+        self.npoints = self.x.size
+        self.points = getattr(self.tri, 'points') # abstract to higher level
         if self.verbose:
             print " - Calculating Delaunay Triangulation ", time.clock() - walltime,"s"
 
@@ -328,9 +333,8 @@ class TriMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-        n = row_array.max()+1
-        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(n,n), comm=comm).transpose()
-        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(n,n), comm=comm).transpose()
+        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), comm=self.comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -379,8 +383,7 @@ class TriMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-        n = row_array.max() + 1
-        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(n,n), comm=comm)
+        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), comm=self.comm)
 
         self.localSmoothMat = smoothMat
 

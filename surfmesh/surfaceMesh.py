@@ -103,7 +103,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
 
         """
 
-        self.node_catchments = -np.ones(self.tri.npoints, dtype=int)
+        self.node_catchments = -np.ones(self.npoints, dtype=int)
         self.catchment_list = [0]
         catchment = 1
 
@@ -214,8 +214,8 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
 
         height = np.maximum(self.height, delta_height)
 
-        for p in range(0, its):
-            delta_height = 1.001 * self.adjacency1.T.dot(delta_height)
+        for p in xrange(0, its):
+            delta_height = 1.001 * self.adjacency1.Tdot(delta_height)
             height = np.maximum(height, delta_height)
 
         if verbose:
@@ -242,7 +242,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         """
 
         low_point_list = []
-        for node in range(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             if self.neighbour_array_lo_hi[node][0] == node and self.bmask[node] == True:
                 low_point_list.append(node)
 
@@ -255,7 +255,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         """
 
         high_point_list = []
-        for node in range(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             if self.neighbour_array_lo_hi[node][-1] == node and self.bmask[node] == True:
                 high_point_list.append(node)
 
@@ -269,7 +269,7 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         """
 
         outflow_point_list = []
-        for node in range(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             if self.neighbour_array_lo_hi[node][0] == node and self.bmask[node] == False:
                 outflow_point_list.append(node)
 
@@ -490,13 +490,13 @@ class SurfaceProcessMesh(VirtualSurfaceProcessMesh):
         diff_timestep   =  self.area.min() / kappa_eff.max()
 
 
-        gradZx, gradZy = self.delaunay_grad(self.height)
+        gradZx, gradZy = self.derivative_grad(self.height)
         flux_x = kappa_eff * gradZx
         flux_y = kappa_eff * gradZy
         if fluxBC:
             flux_x[inverse_bmask] = 0.0
             flux_y[inverse_bmask] = 0.0  # outward normal flux, actually
-        diffDz  = self.delaunay_div(flux_x, flux_y)
+        diffDz  = self.derivative_div(flux_x, flux_y)
 
         if not fluxBC:
             diffDz[inverse_bmask] = 0.0

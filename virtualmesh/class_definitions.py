@@ -5,8 +5,39 @@
 ##
 ##
 
+class VirtualDecomposition(object):
+    """
+    Abstract class for mesh decomposition.
+    Provides fallbacks for methods that do not exist.
+    """
+    def __init__(self):
+        """
+        Generic initialisation for decomposition class
+        """
 
-class VirtualMesh(object):
+        print "VirtualDecomposition __init__fn"
+
+        self.decomposition_type = None
+        self.comm = None
+        self.identity = None
+        self.N = None
+        self.n = None
+        self.start = None
+
+    def radial_decomposition(self, global_x, global_y, boundary_mask, **kwargs):
+        raise NotImplementedError()
+
+    def ring_decomposition(self, global_x, global_y, boundary_mask, **kwargs):
+        raise NotImplementedError()
+
+    def grid_decomposition(self, global_x, global_y, boundary_mask, **kwargs):
+        raise NotImplementedError()
+
+    def custom_decomposition(self, global_x, global_y, boundary_mask, **kwargs):
+        raise NotImplementedError()
+
+
+class VirtualMesh(VirtualDecomposition):
     """ Abstract class for triangulated meshes and regular pixel meshes (2D)
 
     Outlines the methods required for the general mesh types.
@@ -18,6 +49,7 @@ class VirtualMesh(object):
             Mesh implementation
         """
 
+        super(VirtualMesh, self).__init__()
         ## This is a place to list variables that need to
         ## be defined on the class
 

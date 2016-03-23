@@ -1,15 +1,22 @@
 """
 Module for generating and manipulating unstructured 2D meshes for surface process simulations
 
-The module defines three meshing classes and some tools to create simple standalone meshes
+The module defines four meshing classes and some tools to create simple standalone meshes
 
     SurfaceProcessMesh(HeightMesh)
-    HeightMesh(TriMesh / PixMesh)
-    TriMesh / PixMesh
+    HeightMesh(TriMesh | PixMesh)
+    TriMesh(MeshDecomposition) | PixMesh(MeshDecomposition)
+    MeshDecomposition
+
+The MeshDecomposition class divides a global mesh into local portions to be distributed
+among processors.
 
 The TriMesh class builds a Delaunay triangulation and some higher-level data structures for
 consistent neighbourhood sweeping and differential operators (grad, div, del-squared) from
 the triangulation.
+
+The PixMesh class creates neighbourhood arrays and differential operators for a
+quadrilateral mesh and mimics many of the data structures of the TriMesh class.
 
 The HeightMesh class adds a height variable and operations to walk downhill
 (or uphill by inverting the data !). It gives the capacity to step information downhill node-to-node
@@ -31,10 +38,11 @@ import tools as tools
 
 import petsc
 
-from .trimesh    import TriMesh  as _TriMesh
-from .pixmesh    import PixMesh  as _PixMesh
-from .topomesh   import TopoMesh as _TopoMeshClass
-from .surfmesh   import SurfaceProcessMesh as _SurfaceProcessMeshClass
+from .decomposition  import MeshDecomposition as _MeshDecomposition
+from .trimesh        import TriMesh  as _TriMesh
+from .pixmesh        import PixMesh  as _PixMesh
+from .topomesh       import TopoMesh as _TopoMeshClass
+from .surfmesh       import SurfaceProcessMesh as _SurfaceProcessMeshClass
 
 known_basemesh_classes = { "TriMesh" : _TriMesh,
                            "PixMesh" : _PixMesh }
@@ -49,7 +57,7 @@ known_basemesh_classes = { "TriMesh" : _TriMesh,
 def FlatMesh(BaseMeshType):
 
     if BaseMeshType in known_basemesh_classes.keys():
-        class FlatMeshClass(known_basemesh_classes[BaseMeshType]):
+        class FlatMeshClass(known_basemesh_classes[BaseMeshType], _MeshDecomposition):
             pass
 
         return FlatMeshClass()
@@ -63,7 +71,7 @@ def FlatMesh(BaseMeshType):
 def TopoMesh(BaseMeshType):
 
     if BaseMeshType in known_basemesh_classes.keys():
-        class TopoMeshClass(_TopoMeshClass, known_basemesh_classes[BaseMeshType]):
+        class TopoMeshClass(_TopoMeshClass, known_basemesh_classes[BaseMeshType], _MeshDecomposition):
             pass
 
         return TopoMeshClass()
@@ -78,7 +86,7 @@ def TopoMesh(BaseMeshType):
 def SurfaceProcessMesh(BaseMeshType):
 
     if BaseMeshType in known_basemesh_classes.keys():
-        class SurfaceProcessMeshClass(_SurfaceProcessMeshClass, _TopoMeshClass, known_basemesh_classes[BaseMeshType] ):
+        class SurfaceProcessMeshClass(_SurfaceProcessMeshClass, _TopoMeshClass, known_basemesh_classes[BaseMeshType], _MeshDecomposition):
             pass
 
         return SurfaceProcessMeshClass()

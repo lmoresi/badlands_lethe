@@ -2,8 +2,6 @@
 ##
 ## Python surface process modelling classes
 ##
-from mpi4py import MPI
-comm = MPI.COMM_WORLD
 from ..virtualmesh import VirtualMesh as VirtualMesh
 
 import numpy as np
@@ -42,13 +40,19 @@ class PixMesh(VirtualMesh):
         self.points = np.column_stack([self.x, self.y])
         self.npoints = self.x.size
 
+        # Catch instance where mesh decomposition is not called
+        if self.decomposition_type == "no decomposition":
+            self.N, self.n = self.x.size, self.x.size
+            self.start = 0
+
         ## Construct the boundary mask
-
-        walltime = time.clock()
-        self.build_boundary_mask()
-        if self.verbose:
-            print "- Constructing boundary mask ", time.clock() - walltime,"s"
-
+        if boundary_mask is None:
+            walltime = time.clock()
+            self.build_boundary_mask()
+            if self.verbose:
+                print "- Constructing boundary mask ", time.clock() - walltime,"s"
+        else:
+            self.bmask = np.array(boundary_mask)
         ## Construct the neighbour list which is absent from the Voronoi data structure
 
         walltime = time.clock()
@@ -93,11 +97,11 @@ class PixMesh(VirtualMesh):
         """
         Build the boundary mask from input x,y points
         """
-        bmask = np.zeros(self.npoints, dtype=bool)
-        bmask += self.x == self.x.min()
-        bmask += self.x == self.x.max()
-        bmask += self.y == self.y.min()
-        bmask += self.y == self.y.max()
+        bmask = np.ones(self.npoints, dtype=bool)
+        bmask[self.x == self.x.min()] = False
+        bmask[self.x == self.x.max()] = False
+        bmask[self.y == self.y.min()] = False
+        bmask[self.y == self.y.max()] = False
 
         self.bmask = bmask
 
@@ -116,18 +120,17 @@ class PixMesh(VirtualMesh):
 
         # Mask the corner nodes
         corners = np.zeros(self.npoints, dtype=bool)
+        corners += np.logical_and(self.x == self.x.min(), self.y == self.y.min())
         corners += np.logical_and(self.x == self.x.min(), self.y == self.y.max())
         corners += np.logical_and(self.x == self.x.max(), self.y == self.y.min())
-        corners[0] = True
-        corners[-1] = True
-
-        cmask = self.bmask - corners
+        corners += np.logical_and(self.x == self.x.max(), self.y == self.y.max())
+        cmask = ~self.bmask - corners
 
 
         tree = cKDTree(self.points)
 
         # find 4 nearest neighbours for interior nodes
-        d, ind_interior = tree.query(self.points[~self.bmask], k=5)
+        d, ind_interior = tree.query(self.points[self.bmask], k=5)
 
         # find 3 nearest neighbours for boundary nodes (minus corners)
         d, ind_boundary = tree.query(self.points[cmask], k=4)
@@ -138,7 +141,7 @@ class PixMesh(VirtualMesh):
 
         # Sort neighbour array of arrays by nodes
 
-        order = np.concatenate([indices[~self.bmask], indices[cmask], indices[corners]]).argsort()
+        order = np.concatenate([indices[self.bmask], indices[cmask], indices[corners]]).argsort()
         neighbour_list = np.array(list(ind_interior)+list(ind_boundary)+list(ind_corner))[order]
 
         neighbour_array = np.array(neighbour_list)
@@ -149,11 +152,19 @@ class PixMesh(VirtualMesh):
 
         for node, node_array in enumerate(neighbour_list):
             neighbour_list[node] = node_array[node_array!=node]
-            node_array = np.hstack( (node, neighbour_list[node]) )
-            neighbour_array[node] = node_array
+            neighbour_array[node] = np.hstack( (node, neighbour_list[node]) )
 
-            rx = self.x[node_array] - self.x[node]
-            ry = self.y[node_array] - self.y[node]
+            if not self.bmask[node]:
+                node_array = neighbour_array[node]
+
+                rx = self.x[node_array] - self.x[node]
+                ry = self.y[node_array] - self.y[node]
+
+            else:
+                node_array = neighbour_list[node]
+
+                rx = self.x[node_array] - self.x[node]
+                ry = self.y[node_array] - self.y[node]
 
             ordering = np.arctan2(rx, ry).argsort()
             neighbourhood_array[node] = node_array[ordering]
@@ -298,8 +309,8 @@ class PixMesh(VirtualMesh):
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
         n = row_array.max() + 1
-        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(n,n), comm=comm).transpose()
-        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(n,n), comm=comm).transpose()
+        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), comm=self.comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -348,8 +359,7 @@ class PixMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-        n = row_array.max() + 1
-        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(n,n), comm=comm)
+        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), comm=self.comm)
 
         self.localSmoothMat = smoothMat
 
@@ -392,8 +402,8 @@ class PixMesh(VirtualMesh):
         resX = np.unique(self.x).size
         resY = np.unique(self.y).size
 
-        return this_plot_ax.imshow(data.reshape(resY, resX), origin='lower',
-                                   extent=[self.x.min(), self.x.max(), self.y.min(), self.y.max()])
+        return this_plot_ax.imshow(data.reshape(resY, resX), origin='lower', \
+                                   extent=[self.x.min(), self.x.max(), self.y.min(), self.y.max()], **kwargs)
 
 
     def assess_derivative_quality(self):

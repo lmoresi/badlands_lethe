@@ -1,7 +1,5 @@
 ## Surface mesh (subclass of mesh) - this defines a TriMesh plus height plus all of the paraphernalia to evolve the height
 
-from mpi4py import MPI
-comm = MPI.COMM_WORLD
 import numpy as np
 import math
 from ..virtualmesh import VirtualTopoMesh
@@ -13,7 +11,7 @@ class TopoMesh(VirtualTopoMesh):
     to propagate information across the surface (e.g. flow downhill)
     """
 
-    name="Generic_Height_TreMesh"
+    name="Generic_Height_TriMesh"
 
     def __init__(self):
 
@@ -111,7 +109,7 @@ class TopoMesh(VirtualTopoMesh):
 
         neighbour_array_lo_hi = self.neighbour_array.copy()  # easiest way to get size / structure right
 
-        for node in xrange(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             heights = self.height[self.neighbour_array[node]]
             neighbour_array_lo_hi[node] = self.neighbour_array[node][np.argsort(heights)]
 
@@ -208,21 +206,21 @@ class TopoMesh(VirtualTopoMesh):
 
         from ..petsc import Matrix as petsc_matrix
 
-        down_neighbour = np.empty(self.tri.npoints, dtype=int)
+        down_neighbour = np.empty(self.npoints, dtype=int)
 
-        size = self.tri.npoints
+        size = self.npoints
         row_array  = np.empty(size, dtype=int)
         col_array  = np.empty(size, dtype=int)
         accu_array = np.ones(size)
 
         # Build a matrix of downhill-ness - one entry per node !
-        for node in xrange(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
             row_array[node] = node
             col_array[node] = down_neighbour[node]
 
 
-        self.accumulatorMat = petsc_matrix(row_array, col_array, accu_array, shape=(size,size), comm=comm).transpose()
+        self.accumulatorMat = petsc_matrix(row_array, col_array, accu_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         self._build_adjacency_matrix_1()
         self._build_adjacency_matrix_2()
@@ -266,15 +264,15 @@ class TopoMesh(VirtualTopoMesh):
 
         from ..petsc import Matrix as petsc_matrix
 
-        down_neighbour = np.empty(self.tri.npoints, dtype=int)
+        down_neighbour = np.empty(self.npoints, dtype=int)
 
-        size = self.tri.npoints
+        size = self.npoints
         row_array  = np.empty(size, dtype=int)
         col_array  = np.empty(size, dtype=int)
         down_array = np.ones(size)
 
         # Build a matrix of downhill-ness - one entry per node !
-        for node in xrange(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             down_neighbour[node] = self.neighbour_array_lo_hi[node][0]
             row_array[node] = node
             col_array[node] = down_neighbour[node]
@@ -282,7 +280,7 @@ class TopoMesh(VirtualTopoMesh):
                 # Catch cases where node is local low point (i.e. it is its own low neighbour)
                 down_array[node] = 0.0
 
-        self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
+        self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
@@ -299,17 +297,17 @@ class TopoMesh(VirtualTopoMesh):
             from scipy.sparse import lil_matrix
             downMat = lil_matrix((size, size))
 
-            for row in xrange(0, self.tri.npoints):
+            for row in xrange(0, self.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in xrange(0, self.tri.npoints):
+            for row in xrange(0, self.npoints):
                 if down_neighbour[row] == row:
                     downMat[row,row] = 0.0
 
             downMat = downMat.tocoo()
             row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
 
-            self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
+            self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         return
 
@@ -325,16 +323,16 @@ class TopoMesh(VirtualTopoMesh):
 
         from ..petsc import Matrix as petsc_matrix
 
-        down_neighbour = np.empty(self.tri.npoints, dtype=int)
-        down_neighbour1 = np.empty(self.tri.npoints, dtype=int)
+        down_neighbour = np.empty(self.npoints, dtype=int)
+        down_neighbour1 = np.empty(self.npoints, dtype=int)
 
-        size = self.tri.npoints
+        size = self.npoints
         row_array  = np.empty(size, dtype=int)
         col_array  = np.empty(size, dtype=int)
         down_array = np.ones(size)
 
         # Build a matrix of downhill-ness - one entry per node !
-        for node in xrange(0,self.tri.npoints):
+        for node in xrange(0,self.npoints):
             down_neighbour[node]  = self.neighbour_array_lo_hi[node][0]
             down_neighbour1[node] = self.neighbour_array_lo_hi[node][1]
             row_array[node] = node
@@ -345,7 +343,7 @@ class TopoMesh(VirtualTopoMesh):
             if node == down_neighbour1[node]:
                 col_array[node] = down_neighbour[node]
 
-        self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
+        self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
@@ -362,17 +360,17 @@ class TopoMesh(VirtualTopoMesh):
             from scipy.sparse import lil_matrix
             downMat = lil_matrix((size, size))
 
-            for row in xrange(0, self.tri.npoints):
+            for row in xrange(0, self.npoints):
                 downMat[down_neighbour[row],row] = 1.0
 
-            for row in xrange(0, self.tri.npoints):
+            for row in xrange(0, self.npoints):
                 if row == down_neighbour[row] or row == down_neighbour1[row]:
                     downMat[row,row] = 0.0
 
             downMat = downMat.tocoo()
             row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
 
-            self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(size,size), comm=comm).transpose()
+            self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         return
 
@@ -398,7 +396,7 @@ class TopoMesh(VirtualTopoMesh):
         downHillaccuMat = self.downhillMat.copy()
         accuM           = self.downhillMat.copy()   # work matrix
 
-        DX =  np.ones(self.tri.npoints) # measure when all the info has been propagated out.
+        DX =  np.ones(self.npoints) # measure when all the info has been propagated out.
         previous_nonzero = 0
         it = 0
 
@@ -445,11 +443,11 @@ class TopoMesh(VirtualTopoMesh):
         print " - Maximum path length ", 128
 
         # make identity matrix
-        size = self.tri.npoints
+        size = self.npoints
         diag_IJ = np.arange(size, dtype='int32')
         diag_V  = np.ones(size, dtype='float32')
 
-        identityMat = petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(size,size), comm=comm)
+        identityMat = petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), comm=self.comm)
 
         downHillaccuMat += identityMat
         downHillaccuMat2 = A128a + identityMat
@@ -478,7 +476,7 @@ class TopoMesh(VirtualTopoMesh):
         downHillaccuMat = self.downhillMat.copy()
         accuM           = self.downhillMat.copy()   # work matrix
 
-        DX =  np.ones(self.tri.npoints) # measure when all the info has been propagated out.
+        DX =  np.ones(self.npoints) # measure when all the info has been propagated out.
 
         walltime = time.clock()
 
@@ -493,11 +491,11 @@ class TopoMesh(VirtualTopoMesh):
         print " - Dense downhill matrix storage time ", time.clock() - walltime
 
         # make identity matrix
-        size = self.tri.npoints
+        size = self.npoints
         diag_IJ = np.arange(size, dtype='int32')
         diag_V  = np.ones(size, dtype='float32')
 
-        downHillaccuMat += petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(size,size), comm=comm)
+        downHillaccuMat += petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), comm=self.comm)
 
         self.downhillCumulativeMat = downHillaccuMat
         self.sweepDownToOutflowMat = downSweepMat
@@ -540,10 +538,10 @@ class TopoMesh(VirtualTopoMesh):
         Walks downhill terminating when the downhill node is already claimed
         """
 
-        chain = -np.ones(self.tri.npoints, dtype=np.int) # in case the mesh is a spiral ziggurat
+        chain = -np.ones(self.npoints, dtype=np.int) # in case the mesh is a spiral ziggurat
 
         idx = 0
-        maxIdx = self.tri.npoints
+        maxIdx = self.npoints
         chain[idx] = node
         low_neighbour = self._node_lowest_neighbour(node)
         junction = -1
@@ -578,7 +576,7 @@ class TopoMesh(VirtualTopoMesh):
         into chain number 0.
         """
 
-        self.node_chain_lookup = -np.ones(self.tri.npoints, dtype=np.int)
+        self.node_chain_lookup = -np.ones(self.npoints, dtype=np.int)
         self.node_chain_list = []
 
         node_chain_idx = 1
@@ -687,7 +685,7 @@ class TopoMesh(VirtualTopoMesh):
         idx=0
         for row in range(0, len(self.neighbour_array_lo_hi)):
             neighbours  = self.neighbour_array_lo_hi[row]
-            npoints  = self.tri.points[neighbours]
+            npoints  = self.points[neighbours]
 
             ## work out (downhill) gradient to (max of three) nearby neighbours
 
@@ -721,14 +719,13 @@ class TopoMesh(VirtualTopoMesh):
                 idx += 1
 
         # We can re-pack this array into a sparse matrix for v. fast computation of downhill operator
-        n = row_array.max() + 1
-        slopeMat = petsc_matrix(row_array, col_array, slope_array, shape=(n,n), comm=comm).transpose()
+        slopeMat = petsc_matrix(row_array, col_array, slope_array, shape=(self.N,self.N), comm=self.comm).transpose()
 
         print "SlopeMat.shape ", slopeMat.shape, size
 
     #     slopeNormVec = np.array(slopeMat.sum(axis=1)).T[0]
     #     slopeNormVec[slopeNormVec != 0.0] = 1.0 / slopeNormVec[slopeNormVec != 0.0]
-    #     slopeNormMat = sparse.eye(self.tri.npoints)
+    #     slopeNormMat = sparse.eye(self.npoints)
     #     slopeNormMat.setdiag(slopeNormVec)
     #     slopeMat = slopeNormMat.dot(slopeMat)
 
