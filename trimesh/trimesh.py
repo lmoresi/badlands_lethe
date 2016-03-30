@@ -8,8 +8,7 @@ import numpy as np
 import math
 import time
 
-from ..petsc import Matrix as petsc_matrix
-
+from ..petsc import coo_matrix
 
 class TriMesh(VirtualMesh):
     """
@@ -25,7 +24,7 @@ class TriMesh(VirtualMesh):
         """
 
         super(TriMesh, self).__init__()
-        self.mesh_type="ConvexTriMesh"
+        self.mesh_type="TriMesh"
 
 
     def build_mesh(self, points_x=None, points_y=None, boundary_mask=None, filename=None, **kwargs):
@@ -332,9 +331,8 @@ class TriMesh(VirtualMesh):
                 idx += 1
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
-
-        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), comm=self.comm).transpose()
-        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        gradMx = coo_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
+        gradMy = coo_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -383,7 +381,7 @@ class TriMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), comm=self.comm)
+        smoothMat = coo_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm)
 
         self.localSmoothMat = smoothMat
 

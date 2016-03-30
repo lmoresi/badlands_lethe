@@ -8,7 +8,7 @@ import numpy as np
 import math
 import time
 
-from ..petsc import Matrix as petsc_matrix
+from ..petsc import coo_matrix
 
 class PixMesh(VirtualMesh):
     """
@@ -309,8 +309,8 @@ class PixMesh(VirtualMesh):
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
         n = row_array.max() + 1
-        gradMx = petsc_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), comm=self.comm).transpose()
-        gradMy = petsc_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        gradMx = coo_matrix(row_array, col_array, grad_x_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
+        gradMy = coo_matrix(row_array, col_array, grad_y_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
         gradM2 = gradMx.dot(gradMx) + gradMy.dot(gradMy) # The del^2 operator !
 
         self.gradMx = gradMx
@@ -359,7 +359,7 @@ class PixMesh(VirtualMesh):
 
         # We can re-pack this array into a sparse matrix for v. fast computation of gradient operators
 
-        smoothMat = petsc_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), comm=self.comm)
+        smoothMat = coo_matrix(row_array, col_array, smooth_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm)
 
         self.localSmoothMat = smoothMat
 

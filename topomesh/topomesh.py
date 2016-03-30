@@ -4,6 +4,7 @@ import numpy as np
 import math
 from ..virtualmesh import VirtualTopoMesh
 
+from ..petsc import coo_matrix
 
 class TopoMesh(VirtualTopoMesh):
     """
@@ -204,7 +205,6 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from ..petsc import Matrix as petsc_matrix
 
         down_neighbour = np.empty(self.npoints, dtype=int)
 
@@ -220,7 +220,7 @@ class TopoMesh(VirtualTopoMesh):
             col_array[node] = down_neighbour[node]
 
 
-        self.accumulatorMat = petsc_matrix(row_array, col_array, accu_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        self.accumulatorMat = coo_matrix(row_array, col_array, accu_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         self._build_adjacency_matrix_1()
         self._build_adjacency_matrix_2()
@@ -262,7 +262,6 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from ..petsc import Matrix as petsc_matrix
 
         down_neighbour = np.empty(self.npoints, dtype=int)
 
@@ -280,7 +279,7 @@ class TopoMesh(VirtualTopoMesh):
                 # Catch cases where node is local low point (i.e. it is its own low neighbour)
                 down_array[node] = 0.0
 
-        self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        self.adjacency1 = coo_matrix(row_array, col_array, down_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
@@ -307,7 +306,7 @@ class TopoMesh(VirtualTopoMesh):
             downMat = downMat.tocoo()
             row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
 
-            self.adjacency1 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
+            self.adjacency1 = coo_matrix(row_array, col_array, down_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         return
 
@@ -321,7 +320,6 @@ class TopoMesh(VirtualTopoMesh):
 
         """
 
-        from ..petsc import Matrix as petsc_matrix
 
         down_neighbour = np.empty(self.npoints, dtype=int)
         down_neighbour1 = np.empty(self.npoints, dtype=int)
@@ -343,7 +341,7 @@ class TopoMesh(VirtualTopoMesh):
             if node == down_neighbour1[node]:
                 col_array[node] = down_neighbour[node]
 
-        self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        self.adjacency2 = coo_matrix(row_array, col_array, down_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         # Catch pathological cases - sometimes if there is a flat spot on the boundary, then
         # the filling method above will produce a non-square matrix. This is caused by
@@ -370,7 +368,7 @@ class TopoMesh(VirtualTopoMesh):
             downMat = downMat.tocoo()
             row_array, col_array, down_array = downMat.row, downMat.col, downMat.data
 
-            self.adjacency2 = petsc_matrix(row_array, col_array, down_array, shape=(self.N,self.N), comm=self.comm).transpose()
+            self.adjacency2 = coo_matrix(row_array, col_array, down_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         return
 
@@ -389,7 +387,6 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from ..petsc import Matrix as petsc_matrix
 
         walltime = time.clock()
 
@@ -447,7 +444,7 @@ class TopoMesh(VirtualTopoMesh):
         diag_IJ = np.arange(size, dtype='int32')
         diag_V  = np.ones(size, dtype='float32')
 
-        identityMat = petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), comm=self.comm)
+        identityMat = coo_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm)
 
         downHillaccuMat += identityMat
         downHillaccuMat2 = A128a + identityMat
@@ -470,7 +467,6 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from ..petsc import Matrix as petsc_matrix
 
         downSweepMat    = self.accumulatorMat.copy()
         downHillaccuMat = self.downhillMat.copy()
@@ -495,7 +491,7 @@ class TopoMesh(VirtualTopoMesh):
         diag_IJ = np.arange(size, dtype='int32')
         diag_V  = np.ones(size, dtype='float32')
 
-        downHillaccuMat += petsc_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), comm=self.comm)
+        downHillaccuMat += coo_matrix(diag_IJ, diag_IJ, diag_V, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm)
 
         self.downhillCumulativeMat = downHillaccuMat
         self.sweepDownToOutflowMat = downSweepMat
@@ -666,7 +662,6 @@ class TopoMesh(VirtualTopoMesh):
         """
 
         import time
-        from ..petsc import Matrix as petsc_matrix
 
 
         t = time.clock()
@@ -719,7 +714,7 @@ class TopoMesh(VirtualTopoMesh):
                 idx += 1
 
         # We can re-pack this array into a sparse matrix for v. fast computation of downhill operator
-        slopeMat = petsc_matrix(row_array, col_array, slope_array, shape=(self.N,self.N), comm=self.comm).transpose()
+        slopeMat = coo_matrix(row_array, col_array, slope_array, shape=(self.N,self.N), offset=(self.start,self.n), comm=self.comm).transpose()
 
         print "SlopeMat.shape ", slopeMat.shape, size
 
