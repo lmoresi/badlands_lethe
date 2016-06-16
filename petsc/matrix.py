@@ -165,40 +165,12 @@ class spmatrix(object):
             C = A + B
         """
         # print "addition time!"
+        sum_mat = self.mat.copy()
         # Identify type and shape of B
         if isinstance(B, spmatrix):
             assert self.shape == B.shape
-            A_indptr, A_indices, A_data = self.mat.getValuesCSR()
-            B_indptr, B_indices, B_data = B.mat.getValuesCSR()
-            # print self.mat.comm.rank, A_indices
-
-            if (A_indptr == B_indptr).all() and (A_indices == B_indices).all():
-                # Matrices have the same structure, fast addition is possible
-                sum_mat = self.mat.copy()
-                gindices = np.arange(self.start, self.start+self.local_shape[0], dtype='int32')
-                lgmap = PETSc.LGMap()
-                lgmap.create(gindices, comm=self.mat.comm)
-                sum_mat.setLGMap(lgmap, lgmap)
-                sum_mat.setValuesLocalCSR(B_indptr, B_indices-self.start, B_data, addv=True)
-                sum_mat.assemble()
-                return spmatrix(sum_mat)
-            else:
-                # Matrices have different structure
-                sum_mat = PETSc.Mat()
-                sum_mat.create(comm=self.mat.comm)
-                sum_mat.setType('aij')
-                sum_mat.setSizes(self.mat.sizes)
-                gindices = np.arange(self.start, self.start+self.local_shape[0], dtype='int32')
-                lgmap = PETSc.LGMap()
-                lgmap.create(gindices, comm=self.mat.comm)
-                sum_mat.setLGMap(lgmap, lgmap)
-                nnz = np.diff(A_indptr) + np.diff(B_indptr)
-                sum_mat.setPreallocationNNZ(nnz.astype('int32'))
-                sum_mat.setValuesLocalCSR(A_indptr, A_indices-self.start, A_data, addv=True)
-                sum_mat.setValuesLocalCSR(B_indptr, B_indices-self.start, B_data, addv=True)
-                sum_mat.assemblyBegin()
-                sum_mat.assemblyEnd()
-                return spmatrix(sum_mat)
+            sum_mat.axpy(1.0, B.mat)
+            return spmatrix(sum_mat)
 
         elif isinstance(B, _Vector):
             raise NotImplementedError('Vector addition is not yet implemented')
@@ -217,12 +189,7 @@ class spmatrix(object):
         # Identify type and shape of B
         if isinstance(B, spmatrix):
             assert self.shape == B.shape
-            if (A_indptr == B_indptr).all() and (A_indices == B_indices).all():
-                indptr, indices, data = B.mat.getValuesCSR()
-                self.mat.setValuesCSR(indptr, indices, data, addv=True)
-                self.mat.assemble()
-            else:
-                raise NotImplementedError()
+            self.mat.axpy(1.0, B.mat)
 
         elif isinstance(B, _Vector):
             raise NotImplementedError()
@@ -243,9 +210,8 @@ class spmatrix(object):
         # Identify type and shape of B
         if isinstance(B, spmatrix):
             assert self.shape == B.shape
-            indptr, indices, data = B.mat.getValuesCSR()
-            sum_mat.setValuesCSR(indptr, indices, -data, addv=True)
-            sum_mat.assemble()
+            sum_mat.axpy(-1.0, B.mat)
+            return spmatrix(sum_mat)
 
         elif isinstance(B, _Vector):
             raise NotImplementedError()
@@ -266,9 +232,7 @@ class spmatrix(object):
         # Identify type and shape of B
         if isinstance(B, spmatrix):
             assert self.shape == B.shape
-            indptr, indices, data = B.mat.getValuesCSR()
-            self.mat.setValuesCSR(indptr, indices, -data, addv=True)
-            self.mat.assemble()
+            self.mat.axpy(-1.0, B.mat)
 
         elif isinstance(B, _Vector):
             raise NotImplementedError()
